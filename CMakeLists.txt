@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.8)
+project(IntegrityTree)
+include_directories(/usr/include/openssl/)
+set(CMAKE_CXX_STANDARD 11)
+link_libraries(ssl)
+link_libraries(crypto)
+set(SOURCE_FILES main.cpp IntegrityTree.h)
+add_executable(IntegrityTree ${SOURCE_FILES})
