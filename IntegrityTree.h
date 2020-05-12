@@ -7,14 +7,18 @@
 #include "openSSLWraps.h"
 #include <queue>
 #include <list>
-#define BLOCK_SIZE 100
-#define NUM_OF_BLOCKS 5
-#define HMAC_SIZE 100
-#define NONCE_SIZE 100
-#define BLOCK_MAX_ADDR 499   // 1500 is in range for last block..
-#define HMAC_MAX_ADDR 999
+#include <cassert>
+
+#define BLOCK_SIZE 4096
+#define NUM_OF_BLOCKS 8
+#define HMAC_SIZE 16
+#define NONCE_SIZE 12
+#define BLOCK_MAX_ADDR 32767   // 1500 is in range for last block..
+#define HMAC_MAX_ADDR 32895
 #define SHA_LENGTH_BYTES 512
-#define MEMORY_SIZE 1500
+#define MEMORY_SIZE 32992
+#define KEY_SIZE 16
+
 typedef enum{
     INVALID_BLOCK_ADDR,
     INVALID_HMAC_ADDR,
@@ -25,38 +29,146 @@ typedef enum{
     INVALID_ADDR,
     SUCCESS
 }ReturnValue;
+void generate_random(unsigned char *s,int len) {
+    static const char alphanum[] =
+            "0123456789"
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    "abcdefghijklmnopqrstuvwxyz";
+
+    for (int i = 0; i < len; ++i) {
+        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    //s[len] = 0;
+}
+class TrustedArea{
+    std::vector<unsigned char*> trusted_memory;
+    int index;
+    int tag_counter;
+public:
+    TrustedArea(){
+        index = 0;
+        tag_counter=0;
+    }
+    unsigned char* allocate_in_trusted_memory(unsigned char* data,unsigned int len,bool isTag){
+        unsigned char* mem_data=new unsigned char[len];
+        strncpy((char*)mem_data,(char*)data,len);
+        trusted_memory.push_back((mem_data));
+        index++;
+        tag_counter = tag_counter + 1*isTag;
+        return mem_data;
+    }
+    void deallocate_from_trusted_area(){
+        delete(trusted_memory[index]);
+        trusted_memory.pop_back();
+        index--;
+    }
+    void update_root(unsigned char* new_root,unsigned int len){
+        delete(trusted_memory[0]);
+        unsigned char* mem_root=new unsigned char[len];
+        strncpy((char*)mem_root,(char*)new_root,len);
+        trusted_memory[0]=mem_root;
+    }
+    unsigned char* get_key(int index_number){
+        if(!index_number){
+            return NULL;
+        }
+        return trusted_memory[index_number];
+    }
+    void print(){
+        std::cout<<"TRUSTED MEMORY V20.4 \n\n\n\n";
+        for(int i=0;i<trusted_memory.size();i++){
+            std::cout<<"\n"<<trusted_memory[i]<<" \n ";
+        }
+    }
+    int get_number_of_tags(){
+        return tag_counter;
+    }
+    ~TrustedArea(){
+        if(index>0){
+            for(int i=0;i<trusted_memory.size();i++){
+                delete trusted_memory[i];
+            }
+        }
+    }
+
+};
+
 unsigned char memory[MEMORY_SIZE];
+unsigned char blocks_data[BLOCK_SIZE*NUM_OF_BLOCKS];
+TrustedArea trustedArea;
 void init_memory(){
-  //  char* memory = new char[MEMORY_SIZE];
-    memset(memory,0,sizeof(memory));
+    memset(blocks_data,0,sizeof(memory));
     int i;
-    int data = 'a'-1;
+    int data = 'A';
     for(i=0 ; i <= BLOCK_MAX_ADDR;i++){
-        if(i % BLOCK_SIZE == 0){
+        if(i % BLOCK_SIZE == 0 && i>0){
             data++;
         }
-        memory[i] = data;
+        blocks_data[i] = data;
     }
-    int hmac_data = 80;
-    for(i=BLOCK_MAX_ADDR + 1 ; i <= HMAC_MAX_ADDR;i++){
+    //Allocating empty root, Will be updated later
+    unsigned char root[12]="empty_root";
+    trustedArea.allocate_in_trusted_memory(root,strlen((char*)root),false);
+    for(i=0; i<= NUM_OF_BLOCKS; i++){
+        unsigned char* key=new unsigned char[KEY_SIZE];
+        generate_random(key,KEY_SIZE);
+        trustedArea.allocate_in_trusted_memory(key,strlen((char*)key),false);
+        delete(key);
+    }
+    unsigned char nonce[12];
+    int j=0;
+    generate_random(nonce,12);
+    for(i=HMAC_MAX_ADDR + 1 ; i < MEMORY_SIZE;i++){
         if(i % HMAC_SIZE == 0){
-            hmac_data++;
+            j=0;
+            generate_random(nonce,12);
         }
-        memory[i] = hmac_data;
+        memory[i] = nonce[j++];
     }
     //return memory;
 }
+
+//1  // 3 4 1-2 3-4  1234
+
+void encrypt_memory(){
+    int j=0;
+
+    int k=HMAC_MAX_ADDR + 1;
+    int mem_index=0;
+    unsigned char ciphertext[BLOCK_SIZE];
+    unsigned char tag[16];
+    unsigned char aad[256];
+    for(int i=0;i<NUM_OF_BLOCKS;i++){
+        memset(ciphertext,0,BLOCK_SIZE);
+        memset(tag,0,HMAC_SIZE);
+        unsigned char* plaintext=new unsigned char[BLOCK_SIZE];
+        strncpy((char*)plaintext,(char*)(blocks_data + i*BLOCK_SIZE),BLOCK_SIZE);
+        unsigned char* key=trustedArea.get_key(i+1);
+        unsigned char* nonce=new unsigned char[NONCE_SIZE];
+        strncpy((char*)nonce,(char*)(memory + (k + (i*NONCE_SIZE))),NONCE_SIZE);
+//        std::cout<<"Plain Text: "<<plaintext<<std::endl;
+//        std::cout<<"Key: "<<key<<std::endl;
+//        std::cout<<"NONCE: "<<nonce<<std::endl;
+        int cipher_len=gcm_encrypt(plaintext,strlen((char*)plaintext),aad,256,key,nonce,strlen((char*)nonce),ciphertext,tag);
+        strncpy((char*)(memory+i*BLOCK_SIZE),(char*)ciphertext,BLOCK_SIZE);
+        strncpy((char*)(memory+ BLOCK_MAX_ADDR+1 + i*HMAC_SIZE),(char*)tag,HMAC_SIZE);
+        delete plaintext;
+        delete nonce;
+    }
+}
+
+void print_trusted_memory() {
+    trustedArea.print();
+}
 void print_memory(){
     int i;
-    std::cout<< " MEMORY (NON-VOLATILE)\n"<<memory;
-//    for( i = 0; i < MEMORY_SIZE; i++){
-//        if(i % 100 == 0){
-//            std::cout << "\n";
-//        }
-//        std::cout<< " " << memory[i] << " ";
-//    }
+//    std::cout<< " MEMORY (NON-VOLATILE)\n"<<memory;
+    for( i = 0; i < MEMORY_SIZE; i++){
+        std::cout<< " " << memory[i] << " ";
+    }
 }
-ReturnValue memread(double addr,unsigned char* buf,int size){
+ReturnValue memread(uint64_t addr,unsigned char* buf,int size){
     //char* tmp;
     if(addr < 0 || addr > MEMORY_SIZE){
         return INVALID_ADDR;
@@ -67,41 +179,38 @@ ReturnValue memread(double addr,unsigned char* buf,int size){
     }
     return SUCCESS;
 }
-double addrToDouble(unsigned char* addr){
-    double res =  strtod((char*)addr,NULL);
-    return res;
-}
-int Block_id(double addr){
+//64 bit address
+int Block_id(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
-    return (int)((addr)/((double)(BLOCK_SIZE)));
+    return (int)((addr)/((uint64_t)(BLOCK_SIZE)));
 }
-int Hmac_id(double addr){
+int Hmac_id(uint64_t addr){
     if(addr<=BLOCK_MAX_ADDR || addr>HMAC_MAX_ADDR){
         return INVALID_HMAC_ADDR;
     }
-    double offset = addr - BLOCK_MAX_ADDR;
-    return (int)((offset)/((double)(HMAC_SIZE)));
+    uint64_t offset = addr - BLOCK_MAX_ADDR;
+    return (int)((offset)/((uint64_t)(HMAC_SIZE)));
 }
 // Input: Block address
 // Output: HMAC address of the same block...
-double Hmac_addr(double addr){
+uint64_t Hmac_addr(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
-    double _block_id=Block_id(addr);
+    uint64_t _block_id=Block_id(addr);
     return NUM_OF_BLOCKS*BLOCK_SIZE + _block_id * HMAC_SIZE;
 }
-double Nonce_addr(double addr){
+uint64_t Nonce_addr(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
-    double _block_id=Block_id(addr);
+    uint64_t _block_id=Block_id(addr);
     return NUM_OF_BLOCKS*BLOCK_SIZE + NUM_OF_BLOCKS * HMAC_SIZE + _block_id * NONCE_SIZE;
 }
-ReturnValue getRightNeighbor(double hmac_addr,double* right_neighbour){
-    double _hmac_id=Hmac_id(hmac_addr);
+ReturnValue getRightNeighbor(uint64_t hmac_addr,uint64_t* right_neighbour){
+    uint64_t _hmac_id=Hmac_id(hmac_addr);
     if(_hmac_id<0){
         return INVALID_HMAC_ADDR;
     }
@@ -111,8 +220,8 @@ ReturnValue getRightNeighbor(double hmac_addr,double* right_neighbour){
     *right_neighbour = Hmac_addr(_hmac_id + 1);
     return SUCCESS;
 }
-ReturnValue getLeftNeighbour(double hmac,double* left_neighbour){
-    double _hmac_id=Hmac_id(hmac);
+ReturnValue getLeftNeighbour(uint64_t hmac,uint64_t* left_neighbour){
+    uint64_t _hmac_id=Hmac_id(hmac);
     if(_hmac_id<0){
         return INVALID_HMAC_ADDR;
     }
@@ -155,12 +264,10 @@ ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned ch
 
 
 }*/
-
 ReturnValue getRoot(){
     std::vector<unsigned char*> nodes;
     std::vector<unsigned char*> leaves;
     std::list<unsigned char*> allocs;
-    unsigned char* hashed_data;
 //    char buf[HMAC_SIZE];
     /*char* tmp_buf=new char[HMAC_SIZE];*/
     for(int i = BLOCK_MAX_ADDR + 1 ;i <= HMAC_MAX_ADDR; i += HMAC_SIZE){
@@ -206,6 +313,61 @@ ReturnValue getRoot(){
     }
     return SUCCESS;
 }
+
+
+
+/*
+ReturnValue getRoot(){
+    std::vector<unsigned char*> nodes;
+    std::vector<unsigned char*> leaves;
+    std::list<unsigned char*> allocs;
+
+    for(int i = BLOCK_MAX_ADDR + 1 ;i <= HMAC_MAX_ADDR; i += HMAC_SIZE){
+        unsigned char* buf=new unsigned char[HMAC_SIZE];
+        memset(buf,0,sizeof(buf));
+        allocs.push_back(buf);
+        memread(i,buf,HMAC_SIZE);
+        nodes.push_back(buf);
+        trustedArea.allocate_in_trusted_memory(buf,strlen((char*)buf),true);
+        delete buf;
+    }
+    // Root Key1 Key2 ... Key8 Hmac1 Hmac2 ... Hmac8
+   // leaves=nodes;
+    //nodes.clear();
+    while (trustedArea.get_number_of_tags() > 1) {
+        for(int i = 0; i <= leaves.size() - 2 ; i+=2){
+            unsigned char* tmp_buf=new unsigned char[strlen((char*)leaves[i])+strlen((char*)leaves[i+1])];
+            strncpy((char*)tmp_buf,(const  char*)leaves[i],strlen((char*)leaves[i])); // Now tmp_buf holds leaves[i] data & has space for leaves[i+1]
+            strncat((char*)tmp_buf,(const char*)leaves[i+1],strlen((char*)leaves[i+1]));
+            unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
+            allocs.push_back(tmp_buf);
+            allocs.push_back(hashed_data);
+            SHA256(tmp_buf,sizeof(tmp_buf),hashed_data);
+            nodes.push_back(hashed_data);
+//            delete(tmp_buf);
+//            delete(hashed_data);
+        }
+        leaves = nodes; //copy c'tor of Node!
+        nodes.clear();
+    }
+    //FIXME: EMPTY THE LIST (DELETE)
+    std::cout<< "\n \nThe Root is:"<<leaves.front();
+    // HERE WE COMPARE THE ROOT WITH THE TRUSTED AREA ROOT
+
+//   compare root vs leaves[0]
+
+    //FREE ALL THE ALLOCATED SPACE
+    auto it=allocs.begin();
+    auto tmp=it;
+    unsigned long size=allocs.size();
+    while(size--){
+        tmp=it;
+        it++;
+        delete(*tmp);
+    }
+    return SUCCESS;
+}
+*/
 
 
 
