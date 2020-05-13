@@ -15,7 +15,7 @@
 #define NONCE_SIZE 12
 #define BLOCK_MAX_ADDR 32767   // 1500 is in range for last block..
 #define HMAC_MAX_ADDR 32895
-#define SHA_LENGTH_BYTES 512
+#define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define MEMORY_SIZE 32992
 #define KEY_SIZE 16
 
@@ -29,6 +29,44 @@ typedef enum{
     INVALID_ADDR,
     SUCCESS
 }ReturnValue;
+void m_stdout(unsigned char* to_print,size_t num){
+    for(int i=0;i<num;i++){
+        std::cout<<to_print[i];
+    }
+}
+unsigned char* m_strncpy(unsigned char* dest,unsigned char* src,size_t num){
+    if(!dest || !src){
+        return NULL;
+    }
+    for(int i=0;i<num;i++){
+        dest[i]=src[i];
+    }
+    return dest;
+}
+
+unsigned char* m_strncat(unsigned char* dest,size_t index,unsigned char* src,size_t num){
+    if(!dest || !src){
+        return NULL;
+    }
+    int i = index;
+    for(int j=0;j<num;j++){
+        dest[i]=src[j];
+        i++;
+    }
+    return dest;
+}
+int m_strncmp(unsigned char* str1,unsigned char* str2,size_t num){
+    if(!str1 || !str2){
+        return 5;
+    }
+    for(int i=0;i<num;i++){
+        if(str1[i] != str2[i]){
+            return str1[i]-str2[i];
+        }
+    }
+    return 0;
+}
+
 void generate_random(unsigned char *s,int len) {
     static const char alphanum[] =
             "0123456789"
@@ -41,32 +79,59 @@ void generate_random(unsigned char *s,int len) {
 
     //s[len] = 0;
 }
+
 class TrustedArea{
     std::vector<unsigned char*> trusted_memory;
-    int index;
+    std::list<unsigned char*> tags_list; //FIFO (QUEUE)
+    int index; //what's this for?
     int tag_counter;
 public:
-    TrustedArea(){
-        index = 0;
-        tag_counter=0;
+    TrustedArea():index(0), tag_counter(0){}
+    ~TrustedArea(){
+        if(index>0){
+            for(int i=0;i<trusted_memory.size();i++){
+                delete[] trusted_memory[i];
+            }
+        }
+        if(tag_counter){
+            auto it=tags_list.begin();
+            for(int i=0;i<trusted_memory.size();i++){
+                delete[] *it;
+                it=tags_list.begin();
+            }
+            //FIXME: DELETE EVERY MEMBER OF LIST MANUALLY
+            tags_list.clear();
+            tag_counter = 0;
+        }
+
     }
     unsigned char* allocate_in_trusted_memory(unsigned char* data,unsigned int len,bool isTag){
         unsigned char* mem_data=new unsigned char[len];
-        strncpy((char*)mem_data,(char*)data,len);
-        trusted_memory.push_back((mem_data));
-        index++;
-        tag_counter = tag_counter + 1*isTag;
+        m_strncpy(mem_data,data,len);
+        if(!isTag) {
+            trusted_memory.push_back((mem_data));
+            ++index;
+        }else{
+            tags_list.push_back((mem_data));
+            ++tag_counter;
+        }
         return mem_data;
     }
     void deallocate_from_trusted_area(){
-        delete(trusted_memory[index]);
+        delete[] (trusted_memory[index]);//to be checked..
         trusted_memory.pop_back();
         index--;
+        return;
     }
-    void update_root(unsigned char* new_root,unsigned int len){
-        delete(trusted_memory[0]);
-        unsigned char* mem_root=new unsigned char[len];
-        strncpy((char*)mem_root,(char*)new_root,len);
+    void delete_tag(){
+        delete[] (tags_list.front());
+        tags_list.pop_front();
+        --tag_counter;
+    }
+    void update_root(unsigned char* new_root){
+        delete[] (trusted_memory[0]);
+        unsigned char* mem_root=new unsigned char[SHA_LENGTH_BYTES];
+        m_strncpy(mem_root,new_root,SHA_LENGTH_BYTES);
         trusted_memory[0]=mem_root;
     }
     unsigned char* get_key(int index_number){
@@ -75,28 +140,31 @@ public:
         }
         return trusted_memory[index_number];
     }
+    unsigned char* get_tag(){
+        return tags_list.front();
+    }
+    unsigned char* get_root(){
+        return trusted_memory[0];
+    }
     void print(){
         std::cout<<"TRUSTED MEMORY V20.4 \n\n\n\n";
         for(int i=0;i<trusted_memory.size();i++){
             std::cout<<"\n"<<trusted_memory[i]<<" \n ";
         }
-    }
-    int get_number_of_tags(){
-        return tag_counter;
-    }
-    ~TrustedArea(){
-        if(index>0){
-            for(int i=0;i<trusted_memory.size();i++){
-                delete trusted_memory[i];
-            }
+        std::cout << "Tags\n\n";
+        for(auto it = tags_list.begin(); it != tags_list.end(); ++it){
+            std::cout << *it << std::endl;
         }
     }
+    int get_number_of_tags(){
+        return tags_list.size();
+    }
+
 
 };
-
+TrustedArea trustedArea;
 unsigned char memory[MEMORY_SIZE];
 unsigned char blocks_data[BLOCK_SIZE*NUM_OF_BLOCKS];
-TrustedArea trustedArea;
 void init_memory(){
     memset(blocks_data,0,sizeof(memory));
     int i;
@@ -109,12 +177,12 @@ void init_memory(){
     }
     //Allocating empty root, Will be updated later
     unsigned char root[12]="empty_root";
-    trustedArea.allocate_in_trusted_memory(root,strlen((char*)root),false);
-    for(i=0; i<= NUM_OF_BLOCKS; i++){
+    trustedArea.allocate_in_trusted_memory(root,SHA_LENGTH_BYTES,false);
+    for(i=0; i< NUM_OF_BLOCKS; i++){
         unsigned char* key=new unsigned char[KEY_SIZE];
         generate_random(key,KEY_SIZE);
-        trustedArea.allocate_in_trusted_memory(key,strlen((char*)key),false);
-        delete(key);
+        trustedArea.allocate_in_trusted_memory(key,KEY_SIZE,false);
+        delete[] (key);
     }
     unsigned char nonce[12];
     int j=0;
@@ -143,21 +211,23 @@ void encrypt_memory(){
         memset(ciphertext,0,BLOCK_SIZE);
         memset(tag,0,HMAC_SIZE);
         unsigned char* plaintext=new unsigned char[BLOCK_SIZE];
-        strncpy((char*)plaintext,(char*)(blocks_data + i*BLOCK_SIZE),BLOCK_SIZE);
+        m_strncpy(plaintext,(blocks_data + i*BLOCK_SIZE),BLOCK_SIZE);
         unsigned char* key=trustedArea.get_key(i+1);
         unsigned char* nonce=new unsigned char[NONCE_SIZE];
-        strncpy((char*)nonce,(char*)(memory + (k + (i*NONCE_SIZE))),NONCE_SIZE);
+        m_strncpy(nonce,(memory + (k + (i*NONCE_SIZE))),NONCE_SIZE);
 //        std::cout<<"Plain Text: "<<plaintext<<std::endl;
 //        std::cout<<"Key: "<<key<<std::endl;
 //        std::cout<<"NONCE: "<<nonce<<std::endl;
-        int cipher_len=gcm_encrypt(plaintext,strlen((char*)plaintext),aad,256,key,nonce,strlen((char*)nonce),ciphertext,tag);
-        strncpy((char*)(memory+i*BLOCK_SIZE),(char*)ciphertext,BLOCK_SIZE);
-        strncpy((char*)(memory+ BLOCK_MAX_ADDR+1 + i*HMAC_SIZE),(char*)tag,HMAC_SIZE);
-        delete plaintext;
-        delete nonce;
+        int cipher_len=gcm_encrypt(plaintext,BLOCK_SIZE,aad,256,key,nonce,NONCE_SIZE,ciphertext,tag);
+        m_strncpy((memory+i*BLOCK_SIZE),ciphertext,BLOCK_SIZE);
+        m_strncpy((memory+ BLOCK_MAX_ADDR+1 + i*HMAC_SIZE),tag,HMAC_SIZE);
+        delete[] plaintext;
+        delete[] nonce;
     }
 }
-
+void update_memory(int addr,char value){
+    memory[addr]=value;
+}
 void print_trusted_memory() {
     trustedArea.print();
 }
@@ -233,8 +303,8 @@ ReturnValue getLeftNeighbour(uint64_t hmac,uint64_t* left_neighbour){
 }
 //Input: hmac of left son + hmac of right son + pointer to allocated char buffer with SHA_LENGTH_BYTES
 //That will contain the result of the hash at the end
-ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned char** parent_hash){
-    unsigned char* tmp_buf=new unsigned char[strlen((char*)hmac1)+strlen((char*)hmac2)];
+/*ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned char** parent_hash){
+    unsigned char* tmp_buf=new unsigned char[2*HMAC_SIZE];
     strcpy((char*)tmp_buf,(const  char*)hmac1); // Now tmp_buf holds hmac1 data & has space for hmac2 data
     strcat((char*)tmp_buf,(const char*)hmac2);
     unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
@@ -244,7 +314,7 @@ ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned ch
     delete[] hashed_data;
     return SUCCESS;
 }
-
+*/
 // This function gets a hmac address, and calculates the root of the tree starting from the given hmac.
 /*ReturnValue traverseTree(double hmac_addr){
     double hmac_id = Hmac_id(hmac_addr);
@@ -261,15 +331,12 @@ ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned ch
         level.push((char*)hmac1_data);
         memset(hmac1_data,0,sizeof(hmac1_data));
     }
-
-
 }*/
-ReturnValue getRoot(){
+/*ReturnValue getRoot(){
     std::vector<unsigned char*> nodes;
     std::vector<unsigned char*> leaves;
     std::list<unsigned char*> allocs;
 //    char buf[HMAC_SIZE];
-    /*char* tmp_buf=new char[HMAC_SIZE];*/
     for(int i = BLOCK_MAX_ADDR + 1 ;i <= HMAC_MAX_ADDR; i += HMAC_SIZE){
         unsigned char* buf=new unsigned char[HMAC_SIZE];
         memset(buf,0,sizeof(buf));
@@ -313,63 +380,67 @@ ReturnValue getRoot(){
     }
     return SUCCESS;
 }
-
-
-
-/*
-ReturnValue getRoot(){
-    std::vector<unsigned char*> nodes;
-    std::vector<unsigned char*> leaves;
-    std::list<unsigned char*> allocs;
-
-    for(int i = BLOCK_MAX_ADDR + 1 ;i <= HMAC_MAX_ADDR; i += HMAC_SIZE){
-        unsigned char* buf=new unsigned char[HMAC_SIZE];
-        memset(buf,0,sizeof(buf));
-        allocs.push_back(buf);
-        memread(i,buf,HMAC_SIZE);
-        nodes.push_back(buf);
-        trustedArea.allocate_in_trusted_memory(buf,strlen((char*)buf),true);
-        delete buf;
-    }
-    // Root Key1 Key2 ... Key8 Hmac1 Hmac2 ... Hmac8
-   // leaves=nodes;
-    //nodes.clear();
-    while (trustedArea.get_number_of_tags() > 1) {
-        for(int i = 0; i <= leaves.size() - 2 ; i+=2){
-            unsigned char* tmp_buf=new unsigned char[strlen((char*)leaves[i])+strlen((char*)leaves[i+1])];
-            strncpy((char*)tmp_buf,(const  char*)leaves[i],strlen((char*)leaves[i])); // Now tmp_buf holds leaves[i] data & has space for leaves[i+1]
-            strncat((char*)tmp_buf,(const char*)leaves[i+1],strlen((char*)leaves[i+1]));
-            unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
-            allocs.push_back(tmp_buf);
-            allocs.push_back(hashed_data);
-            SHA256(tmp_buf,sizeof(tmp_buf),hashed_data);
-            nodes.push_back(hashed_data);
-//            delete(tmp_buf);
-//            delete(hashed_data);
-        }
-        leaves = nodes; //copy c'tor of Node!
-        nodes.clear();
-    }
-    //FIXME: EMPTY THE LIST (DELETE)
-    std::cout<< "\n \nThe Root is:"<<leaves.front();
-    // HERE WE COMPARE THE ROOT WITH THE TRUSTED AREA ROOT
-
-//   compare root vs leaves[0]
-
-    //FREE ALL THE ALLOCATED SPACE
-    auto it=allocs.begin();
-    auto tmp=it;
-    unsigned long size=allocs.size();
-    while(size--){
-        tmp=it;
-        it++;
-        delete(*tmp);
-    }
-    return SUCCESS;
-}
 */
 
 
 
+ReturnValue getRoot(unsigned char* result){
+    int j=1;
+    for(int i = BLOCK_MAX_ADDR + 1; i<= HMAC_MAX_ADDR-2*HMAC_SIZE+1; i+= 2*HMAC_SIZE) {
+        unsigned char buf1[HMAC_SIZE], buf2[HMAC_SIZE];
+        memset(buf1,0,HMAC_SIZE);
+        memset(buf2,0,HMAC_SIZE);
+        memread(i, buf1, HMAC_SIZE);
+        memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
+        unsigned char tmp[2 * HMAC_SIZE];
+        memset(tmp,0,2*HMAC_SIZE);
+        m_strncpy(tmp,buf1, HMAC_SIZE);
+        m_strncat(tmp,HMAC_SIZE,buf2, HMAC_SIZE);
+        unsigned char hashed_data[SHA_LENGTH_BYTES];
+        memset(hashed_data,0,SHA_LENGTH_BYTES);
+        SHA256(tmp,sizeof(tmp), hashed_data);
+        trustedArea.allocate_in_trusted_memory(hashed_data,sizeof(hashed_data),true);
 
-#endif //INTEGRITYTREE_INTEGRITYTREE_H
+    }
+   // std::cout << trustedArea.get_number_of_tags();
+    int n=0; //Que eso?
+    while((n=trustedArea.get_number_of_tags())>1){
+        for(int i=0; i<= n-2; i+=2){
+            unsigned char sha2[2*SHA_LENGTH_BYTES];
+            memset(sha2,0,2*SHA_LENGTH_BYTES);
+            m_strncpy(sha2, trustedArea.get_tag(),SHA_LENGTH_BYTES);
+            trustedArea.delete_tag();
+            m_strncat(sha2,SHA_LENGTH_BYTES,trustedArea.get_tag(),SHA_LENGTH_BYTES);
+            trustedArea.delete_tag();
+            unsigned char hashed_data[SHA_LENGTH_BYTES];
+            memset(hashed_data,0,SHA_LENGTH_BYTES);
+            SHA256(sha2,sizeof(sha2), hashed_data);
+            trustedArea.allocate_in_trusted_memory(hashed_data,sizeof(hashed_data),true);
+        }
+    }
+
+  //  std::cout<<"\nTHE ROOTT ISSSS : \n\n\n\n";
+  //  std::cout<<trustedArea.get_tag();
+
+    m_strncpy(result,trustedArea.get_tag(),SHA_LENGTH_BYTES);
+    trustedArea.delete_tag();
+
+    return SUCCESS;
+
+}
+
+bool verify_integrity(){
+    unsigned char curr_root[SHA_LENGTH_BYTES];
+    memset(curr_root,0,SHA_LENGTH_BYTES);
+    getRoot(curr_root);
+    if(!m_strncmp(curr_root,(trustedArea.get_root()),SHA_LENGTH_BYTES)){
+        std::cout<<"\n\nTHE TREE IS VALID---\n";
+        return true;
+    }
+    std::cout<<"THE TREE IS FUCKED:( LEAVE AND THROW THE PC NOWWWW!\n\n\n\n";
+    return false;
+}
+
+
+
+#endif //INTEGRITYTREE_INTEGRITYTREE_H 
