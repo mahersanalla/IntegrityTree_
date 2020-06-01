@@ -134,11 +134,18 @@ public:
         m_strncpy(mem_root,new_root,SHA_LENGTH_BYTES);
         trusted_memory[0]=mem_root;
     }
-    unsigned char* get_key(int index_number){
+    void update_key(int index_number,unsigned char* m_key){
         if(!index_number){
-            return NULL;
+            return;
         }
-        return trusted_memory[index_number];
+        memset(trusted_memory[index_number],0,KEY_SIZE);
+        m_strncpy(trusted_memory[index_number],m_key,KEY_SIZE);
+    }
+    void get_key(int index_number,unsigned char* buf){
+        if(!index_number){
+            return;
+        }
+        m_strncpy(buf,trusted_memory[index_number],KEY_SIZE);
     }
     unsigned char* get_tag(){
         return tags_list.front();
@@ -184,20 +191,19 @@ void init_memory(){
         trustedArea.allocate_in_trusted_memory(key,KEY_SIZE,false);
         delete[] (key);
     }
-    unsigned char nonce[12];
+    unsigned char nonce[NONCE_SIZE];
     int j=0;
-    generate_random(nonce,12);
+    generate_random(nonce,NONCE_SIZE);
     for(i=HMAC_MAX_ADDR + 1 ; i < MEMORY_SIZE;i++){
         if(i % HMAC_SIZE == 0){
             j=0;
-            generate_random(nonce,12);
+            generate_random(nonce,NONCE_SIZE);
         }
         memory[i] = nonce[j++];
     }
     //return memory;
 }
 
-//1  // 3 4 1-2 3-4  1234
 
 void encrypt_memory(){
     int j=0;
@@ -206,13 +212,14 @@ void encrypt_memory(){
     int mem_index=0;
     unsigned char ciphertext[BLOCK_SIZE];
     unsigned char tag[16];
-    unsigned char aad[256];
+    unsigned char aad[256]="";
     for(int i=0;i<NUM_OF_BLOCKS;i++){
         memset(ciphertext,0,BLOCK_SIZE);
         memset(tag,0,HMAC_SIZE);
         unsigned char* plaintext=new unsigned char[BLOCK_SIZE];
         m_strncpy(plaintext,(blocks_data + i*BLOCK_SIZE),BLOCK_SIZE);
-        unsigned char* key=trustedArea.get_key(i+1);
+        unsigned char* key=new unsigned char[KEY_SIZE];
+        trustedArea.get_key(i+1,key);
         unsigned char* nonce=new unsigned char[NONCE_SIZE];
         m_strncpy(nonce,(memory + (k + (i*NONCE_SIZE))),NONCE_SIZE);
 //        std::cout<<"Plain Text: "<<plaintext<<std::endl;
@@ -223,6 +230,7 @@ void encrypt_memory(){
         m_strncpy((memory+ BLOCK_MAX_ADDR+1 + i*HMAC_SIZE),tag,HMAC_SIZE);
         delete[] plaintext;
         delete[] nonce;
+        delete[] key;
     }
 }
 void update_memory(int addr,char value){
@@ -238,6 +246,23 @@ void print_memory(){
         std::cout<< " " << memory[i] << " ";
     }
 }
+void print_blocks_data(){
+    int i;
+    for( i = 0; i < BLOCK_SIZE*NUM_OF_BLOCKS; i++){
+        std::cout<< " " << blocks_data[i] << " ";
+    }
+    std::cout<<std::endl;
+}
+ReturnValue memwrite(uint64_t addr,unsigned char* buf,int size){
+    if(addr < 0 || addr > MEMORY_SIZE){
+        return INVALID_ADDR;
+    }
+    int i,j=0;
+    for(i = (int)addr; i < addr + size ; i++){
+        memory[i]=buf[j++];
+    }
+    return SUCCESS;
+}
 ReturnValue memread(uint64_t addr,unsigned char* buf,int size){
     //char* tmp;
     if(addr < 0 || addr > MEMORY_SIZE){
@@ -249,14 +274,15 @@ ReturnValue memread(uint64_t addr,unsigned char* buf,int size){
     }
     return SUCCESS;
 }
+
 //64 bit address
-int Block_id(uint64_t addr){
+int block_id(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
     return (int)((addr)/((uint64_t)(BLOCK_SIZE)));
 }
-int Hmac_id(uint64_t addr){
+int hmac_id(uint64_t addr){
     if(addr<=BLOCK_MAX_ADDR || addr>HMAC_MAX_ADDR){
         return INVALID_HMAC_ADDR;
     }
@@ -265,122 +291,21 @@ int Hmac_id(uint64_t addr){
 }
 // Input: Block address
 // Output: HMAC address of the same block...
-uint64_t Hmac_addr(uint64_t addr){
+uint64_t hmac_addr(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
-    uint64_t _block_id=Block_id(addr);
+    uint64_t _block_id=block_id(addr);
     return NUM_OF_BLOCKS*BLOCK_SIZE + _block_id * HMAC_SIZE;
 }
-uint64_t Nonce_addr(uint64_t addr){
+uint64_t nonce_addr(uint64_t addr){
     if(addr<0 || addr>BLOCK_MAX_ADDR){
         return INVALID_BLOCK_ADDR;
     }
-    uint64_t _block_id=Block_id(addr);
+    uint64_t _block_id=block_id(addr);
     return NUM_OF_BLOCKS*BLOCK_SIZE + NUM_OF_BLOCKS * HMAC_SIZE + _block_id * NONCE_SIZE;
 }
-ReturnValue getRightNeighbor(uint64_t hmac_addr,uint64_t* right_neighbour){
-    uint64_t _hmac_id=Hmac_id(hmac_addr);
-    if(_hmac_id<0){
-        return INVALID_HMAC_ADDR;
-    }
-    if(_hmac_id == NUM_OF_BLOCKS - 1){
-        return NO_RIGHT_NEIGHBOR;
-    }
-    *right_neighbour = Hmac_addr(_hmac_id + 1);
-    return SUCCESS;
-}
-ReturnValue getLeftNeighbour(uint64_t hmac,uint64_t* left_neighbour){
-    uint64_t _hmac_id=Hmac_id(hmac);
-    if(_hmac_id<0){
-        return INVALID_HMAC_ADDR;
-    }
-    if(_hmac_id == 0){
-        return NO_LEFT_NEIGHBOR;
-    }
-    *left_neighbour = Hmac_addr(_hmac_id - 1);
-    return SUCCESS;
-}
-//Input: hmac of left son + hmac of right son + pointer to allocated char buffer with SHA_LENGTH_BYTES
-//That will contain the result of the hash at the end
-/*ReturnValue getParentHash(unsigned char* hmac1, unsigned char* hmac2,unsigned char** parent_hash){
-    unsigned char* tmp_buf=new unsigned char[2*HMAC_SIZE];
-    strcpy((char*)tmp_buf,(const  char*)hmac1); // Now tmp_buf holds hmac1 data & has space for hmac2 data
-    strcat((char*)tmp_buf,(const char*)hmac2);
-    unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
-    SHA256(tmp_buf,sizeof(tmp_buf),hashed_data);
-    strcpy((char*)(*parent_hash),(char*)hashed_data);
-    delete[] tmp_buf;
-    delete[] hashed_data;
-    return SUCCESS;
-}
-*/
-// This function gets a hmac address, and calculates the root of the tree starting from the given hmac.
-/*ReturnValue traverseTree(double hmac_addr){
-    double hmac_id = Hmac_id(hmac_addr);
-    if(hmac_id < 0){
-        return INVALID_HMAC_ADDR;
-    }
-    double curr_addr = BLOCK_MAX_ADDR + 1;
-    char hmac1_data[HMAC_SIZE];
-    char hmac2_data[HMAC_SIZE];
-    double neighbor_addr;
-    queue<char*> level;
-    for(curr_addr ; curr_addr <= HMAC_MAX_ADDR ; curr_addr+=HMAC_SIZE){
-        memread(curr_addr,hmac1_data,HMAC_SIZE);
-        level.push((char*)hmac1_data);
-        memset(hmac1_data,0,sizeof(hmac1_data));
-    }
-}*/
-/*ReturnValue getRoot(){
-    std::vector<unsigned char*> nodes;
-    std::vector<unsigned char*> leaves;
-    std::list<unsigned char*> allocs;
-//    char buf[HMAC_SIZE];
-    for(int i = BLOCK_MAX_ADDR + 1 ;i <= HMAC_MAX_ADDR; i += HMAC_SIZE){
-        unsigned char* buf=new unsigned char[HMAC_SIZE];
-        memset(buf,0,sizeof(buf));
-        allocs.push_back(buf);
-        memread(i,buf,HMAC_SIZE);
-        nodes.push_back(buf);
-    }
-    std::cout<<nodes[2];
-    leaves=nodes;
-    nodes.clear();
-    while (leaves.size() != 1) {
-        for(int i = 0; i <= leaves.size() - 2 ; i+=2){
-            unsigned char* tmp_buf=new unsigned char[strlen((char*)leaves[i])+strlen((char*)leaves[i+1])+1];
-            strcpy((char*)tmp_buf,(const  char*)leaves[i]); // Now tmp_buf holds leaves[i] data & has space for leaves[i+1]
-            strcat((char*)tmp_buf,(const char*)leaves[i+1]);
-            unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
-            allocs.push_back(tmp_buf);
-            allocs.push_back(hashed_data);
-            SHA256(tmp_buf,sizeof(tmp_buf),hashed_data);
-            nodes.push_back(hashed_data);
-//            delete(tmp_buf);
-//            delete(hashed_data);
-        }
-        leaves = nodes; //copy c'tor of Node!
-        nodes.clear();
-    }
-    //FIXME: EMPTY THE LIST (DELETE)
-    std::cout<< "\n \nThe Root is:"<<leaves.front();
-    // HERE WE COMPARE THE ROOT WITH THE TRUSTED AREA ROOT
 
-//   compare root vs leaves[0]
-
-    //FREE ALL THE ALLOCATED SPACE
-    auto it=allocs.begin();
-    auto tmp=it;
-    unsigned long size=allocs.size();
-    while(size--){
-        tmp=it;
-        it++;
-        delete(*tmp);
-    }
-    return SUCCESS;
-}
-*/
 
 
 
@@ -429,18 +354,111 @@ ReturnValue getRoot(unsigned char* result){
 
 }
 
+
+
 bool verify_integrity(){
     unsigned char curr_root[SHA_LENGTH_BYTES];
     memset(curr_root,0,SHA_LENGTH_BYTES);
     getRoot(curr_root);
     if(!m_strncmp(curr_root,(trustedArea.get_root()),SHA_LENGTH_BYTES)){
-        std::cout<<"\n\nTHE TREE IS VALID---\n";
+//        std::cout<<"\n\nTHE TREE IS VALID---\n";
         return true;
     }
     std::cout<<"THE TREE IS FUCKED:( LEAVE AND THROW THE PC NOWWWW!\n\n\n\n";
     return false;
 }
 
+int read_block(uint64_t addr,unsigned char* buf){
+    int index = block_id(addr);
+    if(!verify_integrity()){
+        return 0;
+    }
+    unsigned char tmp_buf[BLOCK_SIZE];
+    memread(index*BLOCK_SIZE,tmp_buf,BLOCK_SIZE);
+    uint64_t nonce_address=nonce_addr(addr);
+    uint64_t hmac_address=hmac_addr(addr);
+    unsigned char nonce[NONCE_SIZE];
+    unsigned char hmac[HMAC_SIZE];
+    unsigned char* key=new unsigned char[KEY_SIZE];
+    trustedArea.get_key(index+1,key);  //Found key
+    memread(nonce_address,nonce,NONCE_SIZE);          // Found nonce value
+    memread(hmac_address,hmac,HMAC_SIZE);             // Found Hmac value
+    unsigned char aad[256]="";
+
+    int read_size = gcm_decrypt(tmp_buf,BLOCK_SIZE,aad,256,hmac,key,nonce,NONCE_SIZE,buf);
+    delete[] key;
+    return read_size;                          // How many bytes we actually decrypted and read
+}
+int write_block(uint64_t addr,unsigned char* buf,int size_to_write){
+    int index = block_id(addr);
+    if(!verify_integrity()){
+        return -1;                  //ERROR
+    }
+    unsigned char block_data[BLOCK_SIZE];
+    uint64_t nonce_address=nonce_addr(addr);
+    uint64_t hmac_address=hmac_addr(addr);
+    read_block(addr,block_data);
+    int j=addr - (index*BLOCK_SIZE);
+    for(int i=0; i < size_to_write ;i++){
+        block_data[j++]=buf[i];
+    }
+    unsigned char ciphertext[BLOCK_SIZE];
+    unsigned char new_tag[16];
+    unsigned char new_aad[256]="";
+    unsigned char* new_key=new unsigned char[KEY_SIZE];
+    trustedArea.get_key(index+1,new_key);  //Found key
+    unsigned char* new_nonce=new unsigned char[NONCE_SIZE];
+    memset(ciphertext,0,BLOCK_SIZE);
+    memset(new_tag,0,HMAC_SIZE);
+    memset(new_key,0,KEY_SIZE);
+    generate_random(new_nonce,NONCE_SIZE);
+    generate_random(new_key,KEY_SIZE);
+    std::cout<<"the old key is: \n";
+    m_stdout(new_key,KEY_SIZE);
+    gcm_encrypt(block_data,BLOCK_SIZE,new_aad,256,new_key,new_nonce,NONCE_SIZE,ciphertext,new_tag);
+    // Update Ciphertext,HMAC, NONCE
+    memwrite(index*BLOCK_SIZE,ciphertext,BLOCK_SIZE);
+    memwrite(hmac_address,new_tag,HMAC_SIZE);
+    memwrite(nonce_address,new_nonce,NONCE_SIZE);
 
 
-#endif //INTEGRITYTREE_INTEGRITYTREE_H 
+
+    // Now update Trusted area key...
+    trustedArea.update_key(index+1,new_key);
+
+
+    //TODO RED
+    unsigned char adham[BLOCK_SIZE];
+    unsigned char tmp_buf[BLOCK_SIZE];
+    memread(index*BLOCK_SIZE,tmp_buf,BLOCK_SIZE);
+    unsigned char nonce[NONCE_SIZE];
+    unsigned char hmac[HMAC_SIZE];
+    unsigned char* test_key=new unsigned char[KEY_SIZE];
+    trustedArea.get_key(index+1,test_key);  //Found key
+    std::cout<<"\n Key after shit:\n";
+    m_stdout(test_key,KEY_SIZE);
+    memread(nonce_address,nonce,NONCE_SIZE);          // Found nonce value
+    memread(hmac_address,hmac,HMAC_SIZE);             // Found Hmac value
+    unsigned char aad[256]="";
+
+
+
+    std::cout<<"\nThe diff between ciphers is: "<<m_strncmp(tmp_buf,ciphertext,BLOCK_SIZE)<<std::endl;
+    std::cout<<"The diff between tags is: "<<m_strncmp(hmac,new_tag,HMAC_SIZE)<<std::endl;
+    std::cout<<"The diff between keys is: "<<m_strncmp(test_key,new_key,KEY_SIZE)<<std::endl;
+    std::cout<<"The diff between NONCES is: "<<m_strncmp(nonce,new_nonce,NONCE_SIZE)<<std::endl;
+
+
+    int read_size = gcm_decrypt(tmp_buf,BLOCK_SIZE,aad,256,hmac,test_key,nonce,NONCE_SIZE,adham);
+
+    m_stdout(adham,BLOCK_SIZE);
+    unsigned char new_root[SHA_LENGTH_BYTES];
+    getRoot(new_root);
+    trustedArea.update_root(new_root);
+    delete[] new_key;
+    delete[] test_key;
+    delete[] new_nonce;
+    return 0;
+}
+
+#endif //INTEGRITYTREE_INTEGRITYTREE_H
