@@ -11,11 +11,12 @@
 
 
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
-#define KEY_SIZE 16
+#define KEY_SIZE 32
 
 class TrustedArea{
     std::vector<unsigned char*> trusted_memory;
     std::list<unsigned char*> tags_list; //FIFO (QUEUE)
+    // TODO: LOG
     int index; //what's this for?
     int tag_counter;
 public:

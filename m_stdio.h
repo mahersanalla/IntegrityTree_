@@ -35,7 +35,7 @@ unsigned char* m_strncat(unsigned char* dest,size_t index,unsigned char* src,siz
     }
     return dest;
 }
-int m_strncmp(unsigned char* str1,unsigned char* str2,size_t num){
+int m_strncmp(unsigned char* str1,unsigned char* str2,int num){
     if(!str1 || !str2){
         return 5;
     }

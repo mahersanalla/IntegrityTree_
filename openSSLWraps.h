@@ -20,7 +20,7 @@ using std::endl;
 
 void handleErrors(void)
 {
-    ERR_print_errors_fp(stderr);
+    ERR_print_errors_fp(stdout);
     abort();
 }
 int gcm_encrypt(unsigned char *plaintext, int plaintext_len,
@@ -139,7 +139,9 @@ int gcm_decrypt(unsigned char *ciphertext, int ciphertext_len,
      * anything else is a failure - the plaintext is not trustworthy.
      */
     ret = EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
-
+//    if(ret<=0){
+//        handleErrors();
+//    }
     /* Clean up */
     EVP_CIPHER_CTX_free(ctx);
 

@@ -3,6 +3,7 @@
 
 #include "TrustedArea.h"
 #include "m_stdio.h"
+#include <fstream>
 
 #define BLOCK_SIZE 4096
 #define NUM_OF_BLOCKS 8
