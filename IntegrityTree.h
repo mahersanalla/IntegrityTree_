@@ -7,6 +7,7 @@
 #include "openSSLWraps.h"
 #include "MainMemory.h"
 #include "TrustedArea.h"
+#include "LRU_Cache.h"
 #include "m_stdio.h"
 #include <cassert>
 #include <fstream>
@@ -34,18 +35,20 @@ void decToBinary(int n,int binaryNum[])
     }
 }
 
-ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,unsigned char* result){
+ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* result){
     int j=1;
     for(int i = BLOCK_MAX_ADDR + 1; i<= HMAC_MAX_ADDR-2*HMAC_SIZE+1; i+= 2*HMAC_SIZE) {
-        unsigned char buf1[HMAC_SIZE], buf2[HMAC_SIZE];
-        memset(buf1,0,HMAC_SIZE);
-        memset(buf2,0,HMAC_SIZE);
-        mainMemory->memread(i, buf1, HMAC_SIZE);
-        mainMemory->memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
+//        unsigned char buf1[HMAC_SIZE], buf2[HMAC_SIZE];
+//        memset(buf1,0,HMAC_SIZE);
+//        memset(buf2,0,HMAC_SIZE);
+//        mainMemory->memread(i, buf1, HMAC_SIZE);
+//        mainMemory->memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
+        unsigned char* hmac1=cache->read_from_cache(i);
+        unsigned char* hmac2=cache->read_from_cache(i+HMAC_SIZE);
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
-        m_strncpy(tmp,buf1, HMAC_SIZE);
-        m_strncat(tmp,HMAC_SIZE,buf2, HMAC_SIZE);
+        m_strncpy(tmp,hmac1, HMAC_SIZE);
+        m_strncat(tmp,HMAC_SIZE,hmac2, HMAC_SIZE);
         unsigned char hashed_data[SHA_LENGTH_BYTES];
         memset(hashed_data,0,SHA_LENGTH_BYTES);
         SHA256(tmp,sizeof(tmp), hashed_data);
@@ -80,10 +83,10 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,unsigned cha
 
 
 
-bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea){
+bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     unsigned char curr_root[SHA_LENGTH_BYTES];
     memset(curr_root,0,SHA_LENGTH_BYTES);
-    getRoot(mainMemory,trustedArea,curr_root);
+    getRoot(mainMemory,trustedArea,cache,curr_root);
     if(!m_strncmp(curr_root,(trustedArea->get_root()),SHA_LENGTH_BYTES)){
 //        std::cout<<"\n\nTHE TREE IS VALID---\n";
         return true;
@@ -108,11 +111,11 @@ void erase_log(){
     ofs.close();
 }
 
-int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,uint64_t addr,unsigned char* buf){
+int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,uint64_t addr,unsigned char* buf){
     int index = block_id(addr);
-    if(!verify_integrity(mainMemory,trustedArea)){
-        return -1;
-    }
+//    if(!verify_integrity(mainMemory,trustedArea)){
+//        return -1;
+//    }
     unsigned char* tmp_buf;
     unsigned char* nonce;
     unsigned char* hmac;
@@ -128,12 +131,18 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,uint64_t 
 
     return read_size;                          // How many bytes we actually decrypted and read
 }
-int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,int block_index,unsigned char* buf){
+int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf){
+    auto start = std::chrono::high_resolution_clock::now();
     uint64_t addr=block_index*BLOCK_SIZE;
-    return read_block_by_addr(mainMemory,trustedArea,addr,buf);
+    int read_size=read_block_by_addr(mainMemory,trustedArea,cache,addr,buf);
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = finish - start;
+//    std::cout<<"Elapsed Time of Read Block without Integrity is : " << elapsed.count()<<std::endl;
+    return read_size;
 }
-int write_block(MainMemory* mainMemory,TrustedArea* trustedArea, int block_index,unsigned char* buf,int size_to_write){
-    if(!verify_integrity(mainMemory,trustedArea)){
+int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
+    auto start = std::chrono::high_resolution_clock::now();
+    if(!verify_integrity(mainMemory,trustedArea,cache)){
         return -1;                  //ERROR
     }
     int binaryNum[32];
@@ -157,18 +166,22 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea, int block_index
     gcm_encrypt(buf,BLOCK_SIZE,new_aad,256,stam_key,new_nonce,NONCE_SIZE,ciphertext,new_tag);
     mainMemory->memwrite(block_index*BLOCK_SIZE,ciphertext,BLOCK_SIZE);
     mainMemory->memwrite(hmac_address,new_tag,HMAC_SIZE);
+    cache->write_to_cache(hmac_address,new_tag); //FIXME
     mainMemory->memwrite(nonce_address,new_nonce,NONCE_SIZE);
 //    trustedArea->update_key(index+1,new_key);
     unsigned char new_root[SHA_LENGTH_BYTES];
-    getRoot(mainMemory,trustedArea,new_root);
+    getRoot(mainMemory,trustedArea,cache,new_root);
     trustedArea->update_root(new_root);
     erase_log();
     delete[] new_key;
     delete[] new_nonce;
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = finish - start;
+//    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
     return 0;
 }
 
-void printToFile(MainMemory* mainMemory,TrustedArea* trustedArea){
+void printToFile(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     std::ofstream ofs;
     ofs.open("memory.txt", std::ofstream::out | std::ofstream::trunc);
     ofs.close();
@@ -176,7 +189,7 @@ void printToFile(MainMemory* mainMemory,TrustedArea* trustedArea){
     memFile << "Printing Memory : \n";
     for(int i=0;i<NUM_OF_BLOCKS ;i++){
         unsigned char* data=new unsigned char[BLOCK_SIZE];
-        read_block(mainMemory,trustedArea,i,data);
+        read_block(mainMemory,trustedArea,cache,i,data);
         memFile << data << "\n";
         delete[] data;
     }

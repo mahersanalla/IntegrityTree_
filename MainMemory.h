@@ -14,6 +14,7 @@
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
 #define MEMORY_SIZE 32992
+#define CACHE_SIZE 4
 
 
 typedef enum{
