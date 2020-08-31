@@ -1,13 +1,14 @@
 #include <iostream>
-#include "assert.h"
+#include "MainMemory.h"
 #include "IntegrityTree.h"
+#include "assert.h"
 int main(){
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
-    LRUCache* cache=new LRUCache(CACHE_SIZE,memory);
+    LRUCache* cache=new LRUCache(CACHE_SIZE,memory->getMemoryPointer());
 
-    memory->init_memory(*trustedArea);
-    memory->encrypt_memory(*trustedArea);
+    memory->init_memory(trustedArea);
+    memory->encrypt_memory(trustedArea);
 
     unsigned char root[SHA_LENGTH_BYTES];
     getRoot(memory,trustedArea,cache,root);

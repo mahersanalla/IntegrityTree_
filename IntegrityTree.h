@@ -4,10 +4,8 @@
 #ifndef INTEGRITYTREE_INTEGRITYTREE_H
 #define INTEGRITYTREE_INTEGRITYTREE_H
 
-#include "openSSLWraps.h"
-#include "MainMemory.h"
 #include "TrustedArea.h"
-#include "LRU_Cache.h"
+#include "MainMemory.h"
 #include "m_stdio.h"
 #include <cassert>
 #include <fstream>
@@ -40,7 +38,7 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     for(int i = BLOCK_MAX_ADDR + 1; i<= HMAC_MAX_ADDR-2*HMAC_SIZE+1; i+= 2*HMAC_SIZE) {
 //        unsigned char buf1[HMAC_SIZE], buf2[HMAC_SIZE];
 //        memset(buf1,0,HMAC_SIZE);
-//        memset(buf2,0,HMAC_SIZE);
+//         (buf2,0,HMAC_SIZE);
 //        mainMemory->memread(i, buf1, HMAC_SIZE);
 //        mainMemory->memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
         unsigned char* hmac1=cache->read_from_cache(i);
@@ -82,7 +80,44 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
 }
 
 
+bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,uint64_t block_addr,unsigned char* block,int block_index){
+    unsigned char* trusted_block = cache->is_in_cache(block_addr);
+    if(!trusted_block){
+        int parent=cache->getParentIndex(block_index);
+        int parent_addr=cache->getMapping(parent);
+        unsigned char* trusted_parent = cache->is_in_cache(parent_addr);
 
+            int son1=cache->getRightSon(parent);
+            int son2=cache->getLeftSon(parent);
+            int other_son= (block_index==son1) ? son2 : son1;
+            int other_addr=cache->getMapping(other_son);
+            unsigned char* other_son_data=new unsigned char[HMAC_SIZE];
+            mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);
+            unsigned char tmp[2 * HMAC_SIZE];
+            memset(tmp,0,2*HMAC_SIZE);
+            m_strncpy(tmp,block, HMAC_SIZE);
+            m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
+            unsigned char hashed_data[SHA_LENGTH_BYTES];
+            memset(hashed_data,0,SHA_LENGTH_BYTES);
+            SHA256(tmp,sizeof(tmp), hashed_data);
+        if(trusted_parent){
+            bool res=m_strncmp(hashed_data,trusted_parent,HMAC_SIZE);
+            if(!res){
+                return true;
+            }
+            return false;
+        }
+        else{
+            return verify_block_integrity(mainMemory,trustedArea,cache,parent_addr,hashed_data,parent);
+        }
+    }
+    // the Block is in Cache
+    int res=m_strncmp(trusted_block,block,HMAC_SIZE);
+    if(!res){
+        return true;
+    }
+    return false;
+}
 bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     unsigned char curr_root[SHA_LENGTH_BYTES];
     memset(curr_root,0,SHA_LENGTH_BYTES);
@@ -142,9 +177,9 @@ int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,i
 }
 int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
     auto start = std::chrono::high_resolution_clock::now();
-    if(!verify_integrity(mainMemory,trustedArea,cache)){
-        return -1;                  //ERROR
-    }
+//    if(!verify_integrity(mainMemory,trustedArea,cache)){
+//        return -1;                  //ERROR
+//    }
     int binaryNum[32];
     decToBinary(block_index,binaryNum);
     write_to_log(binaryNum,0,buf);
@@ -168,7 +203,7 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,
     mainMemory->memwrite(hmac_address,new_tag,HMAC_SIZE);
     cache->write_to_cache(hmac_address,new_tag); //FIXME
     mainMemory->memwrite(nonce_address,new_nonce,NONCE_SIZE);
-//    trustedArea->update_key(index+1,new_key);
+    trustedArea->update_key(block_index+1,new_key);
     unsigned char new_root[SHA_LENGTH_BYTES];
     getRoot(mainMemory,trustedArea,cache,new_root);
     trustedArea->update_root(new_root);
@@ -177,7 +212,7 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,
     delete[] new_nonce;
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = finish - start;
-//    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
+    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
     return 0;
 }
 
