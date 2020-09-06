@@ -3,7 +3,8 @@
 //
 #ifndef INTEGRITYTREE_INTEGRITYTREE_H
 #define INTEGRITYTREE_INTEGRITYTREE_H
-
+#define FIRST_LEVEL 3
+#define SECOND_LEVEL 1
 #include "TrustedArea.h"
 #include "MainMemory.h"
 #include "m_stdio.h"
@@ -32,17 +33,43 @@ void decToBinary(int n,int binaryNum[])
         i++;
     }
 }
+int get_level(int k){
+    if(k==0){
+        return FIRST_LEVEL;
+    }
+    return SECOND_LEVEL;
+}
 
 ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* result){
     int j=1;
+    int k=0;
     for(int i = BLOCK_MAX_ADDR + 1; i<= HMAC_MAX_ADDR-2*HMAC_SIZE+1; i+= 2*HMAC_SIZE) {
-//        unsigned char buf1[HMAC_SIZE], buf2[HMAC_SIZE];
-//        memset(buf1,0,HMAC_SIZE);
-//         (buf2,0,HMAC_SIZE);
+        unsigned char* buf1=new unsigned char[HMAC_SIZE];
+        unsigned char* buf2=new unsigned char[HMAC_SIZE];
+        memset(buf1,0,HMAC_SIZE);
+        memset(buf2,0,HMAC_SIZE);
 //        mainMemory->memread(i, buf1, HMAC_SIZE);
 //        mainMemory->memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
-        unsigned char* hmac1=cache->read_from_cache(i);
-        unsigned char* hmac2=cache->read_from_cache(i+HMAC_SIZE);
+        int* hmac1_virtual_addr=cache->getMapping(k+OFFSET);
+        unsigned char* hmac1=cache->read_from_cache(hmac1_virtual_addr);
+        if(!hmac1){
+            mainMemory->memread(i, buf1, HMAC_SIZE);
+            cache->refer(hmac1_virtual_addr,buf1);
+            hmac1=buf1;
+        }
+        cache->fillPointersArray(k+OFFSET,hmac1);
+//        std::cout<<"Hmac is: "<<hmac1<<std::endl;
+        k++;
+        int* hmac2_virtual_addr=cache->getMapping(k+OFFSET);
+        unsigned char* hmac2=cache->read_from_cache(hmac2_virtual_addr);
+        if(!hmac2){
+            mainMemory->memread(i+HMAC_SIZE, buf2, HMAC_SIZE);
+            cache->refer(hmac2_virtual_addr,buf2);
+            hmac2=buf2;
+        }
+//        std::cout<<"Hmac is: "<<hmac2<<std::endl;
+        cache->fillPointersArray(k+OFFSET,hmac2);
+        k++;
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
         m_strncpy(tmp,hmac1, HMAC_SIZE);
@@ -51,17 +78,31 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
         memset(hashed_data,0,SHA_LENGTH_BYTES);
         SHA256(tmp,sizeof(tmp), hashed_data);
         trustedArea->allocate_in_trusted_memory(hashed_data,sizeof(hashed_data),true);
-
+//        delete[] buf1;
+//        delete[] buf2;
     }
     int n=0; //Que eso?
+    k=0;
+//    trustedArea->print();
     while((n=trustedArea->get_number_of_tags())>1){
+        k=get_level(k);
         for(int i=0; i<= n-2; i+=2){
             unsigned char sha2[2*SHA_LENGTH_BYTES];
             memset(sha2,0,2*SHA_LENGTH_BYTES);
             m_strncpy(sha2, trustedArea->get_tag(),SHA_LENGTH_BYTES);
+            int* hmac3_virtual_addr=cache->getMapping(k);
+            unsigned char* hmac3=trustedArea->get_tag();
+            cache->refer(hmac3_virtual_addr,hmac3);
+            cache->fillPointersArray(k,hmac3);
             trustedArea->delete_tag();
+            k++;
+            int* hmac4_virtual_address=cache->getMapping(k);
+            unsigned char* hmac4=trustedArea->get_tag();
+            cache->fillPointersArray(k,hmac4);
+            cache->refer(hmac4_virtual_address,hmac4);
             m_strncat(sha2,SHA_LENGTH_BYTES,trustedArea->get_tag(),SHA_LENGTH_BYTES);
             trustedArea->delete_tag();
+            k++;
             unsigned char hashed_data[SHA_LENGTH_BYTES];
             memset(hashed_data,0,SHA_LENGTH_BYTES);
             SHA256(sha2,sizeof(sha2), hashed_data);
@@ -78,28 +119,28 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     return SUCCESS;
 
 }
-
-
-bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,uint64_t block_addr,unsigned char* block,int block_index){
-    unsigned char* trusted_block = cache->is_in_cache(block_addr);
+//FIXME: block_index is the index+offset
+bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int block_index){
+    int* virtual_block_addr=cache->getMapping(block_index);
+    unsigned char* trusted_block = cache->is_in_cache(virtual_block_addr);
     if(!trusted_block){
         int parent=cache->getParentIndex(block_index);
-        int parent_addr=cache->getMapping(parent);
+        int* parent_addr=cache->getMapping(parent);
+        unsigned char* parent_data=cache->getDataPointer(parent);
         unsigned char* trusted_parent = cache->is_in_cache(parent_addr);
-
-            int son1=cache->getRightSon(parent);
-            int son2=cache->getLeftSon(parent);
-            int other_son= (block_index==son1) ? son2 : son1;
-            int other_addr=cache->getMapping(other_son);
-            unsigned char* other_son_data=new unsigned char[HMAC_SIZE];
-            mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);
-            unsigned char tmp[2 * HMAC_SIZE];
-            memset(tmp,0,2*HMAC_SIZE);
-            m_strncpy(tmp,block, HMAC_SIZE);
-            m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
-            unsigned char hashed_data[SHA_LENGTH_BYTES];
-            memset(hashed_data,0,SHA_LENGTH_BYTES);
-            SHA256(tmp,sizeof(tmp), hashed_data);
+        int son1=cache->getRightSon(parent);
+        int son2=cache->getLeftSon(parent);
+        int other_son= (block_index==son1) ? son2 : son1;
+        int* other_addr=cache->getMapping(other_son);
+        unsigned char* other_son_data=cache->getDataPointer(other_son);
+        //mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);   //FIXME
+        unsigned char tmp[2 * HMAC_SIZE];
+        memset(tmp,0,2*HMAC_SIZE);
+        m_strncpy(tmp,block, HMAC_SIZE);
+        m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
+        unsigned char hashed_data[SHA_LENGTH_BYTES];
+        memset(hashed_data,0,SHA_LENGTH_BYTES);
+        SHA256(tmp,sizeof(tmp), hashed_data);
         if(trusted_parent){
             bool res=m_strncmp(hashed_data,trusted_parent,HMAC_SIZE);
             if(!res){
@@ -108,15 +149,17 @@ bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUC
             return false;
         }
         else{
-            return verify_block_integrity(mainMemory,trustedArea,cache,parent_addr,hashed_data,parent);
+            return verify_block_integrity(mainMemory,trustedArea,cache,hashed_data,parent);
         }
     }
-    // the Block is in Cache
-    int res=m_strncmp(trusted_block,block,HMAC_SIZE);
-    if(!res){
-        return true;
+    else {
+        // the Block is in Cache
+        int res = m_strncmp(trusted_block, block, HMAC_SIZE);
+        if (!res) {
+            return true;
+        }
+        return false;
     }
-    return false;
 }
 bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     unsigned char curr_root[SHA_LENGTH_BYTES];
@@ -127,6 +170,7 @@ bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* 
         return true;
     }
 //    std::cout<<"THE TREE IS FUCKED:( LEAVE AND THROW THE PC NOWWWW!\n\n\n\n";
+    //FIXME: FLUSH THE CACHE boy!!
     return false;
 }
 // Binary index of block 001 , status Invalid/Valid , Data
@@ -148,7 +192,7 @@ void erase_log(){
 
 int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,uint64_t addr,unsigned char* buf){
     int index = block_id(addr);
-//    if(!verify_integrity(mainMemory,trustedArea)){
+//    if(!verify_integrity(mainMemory,trustedArea,cache)){
 //        return -1;
 //    }
     unsigned char* tmp_buf;
@@ -161,9 +205,14 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
     key=trustedArea->get_key(index+1);  //Found key
     nonce=mainMemory->getMemoryAddress(nonce_address);
     hmac=mainMemory->getMemoryAddress(hmac_address);
+   // FIXME:
+    bool res=verify_block_integrity(mainMemory,trustedArea,cache,hmac,block_id(addr)+OFFSET);
+    if(!res){
+        return -1; //Not verifiable
+    }
+    std::cout<<"Hereeee I'm\n";
     unsigned char aad[256]="";
     int read_size = gcm_decrypt(tmp_buf,BLOCK_SIZE,aad,256,hmac,key,nonce,NONCE_SIZE,buf);
-
     return read_size;                          // How many bytes we actually decrypted and read
 }
 int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf){
@@ -177,9 +226,10 @@ int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,i
 }
 int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
     auto start = std::chrono::high_resolution_clock::now();
-//    if(!verify_integrity(mainMemory,trustedArea,cache)){
-//        return -1;                  //ERROR
-//    }
+    if(!verify_integrity(mainMemory,trustedArea,cache)){
+        return -1;                  //ERROR
+    }
+
     int binaryNum[32];
     decToBinary(block_index,binaryNum);
     write_to_log(binaryNum,0,buf);
@@ -201,7 +251,8 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,
     gcm_encrypt(buf,BLOCK_SIZE,new_aad,256,stam_key,new_nonce,NONCE_SIZE,ciphertext,new_tag);
     mainMemory->memwrite(block_index*BLOCK_SIZE,ciphertext,BLOCK_SIZE);
     mainMemory->memwrite(hmac_address,new_tag,HMAC_SIZE);
-    cache->write_to_cache(hmac_address,new_tag); //FIXME
+    //cache->write_to_cache(hmac_address,new_tag); //FIXME
+    cache->flush();
     mainMemory->memwrite(nonce_address,new_nonce,NONCE_SIZE);
     trustedArea->update_key(block_index+1,new_key);
     unsigned char new_root[SHA_LENGTH_BYTES];
@@ -212,7 +263,7 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,
     delete[] new_nonce;
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = finish - start;
-    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
+//    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
     return 0;
 }
 

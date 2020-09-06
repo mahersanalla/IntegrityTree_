@@ -7,112 +7,132 @@
 #include <cstring>
 #include <vector>
 #include <list>
+#include <unordered_map>
+#include <assert.h>
+
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define CACHE_SIZE 4
-
+#define CACHE_SIZE 8
+#define HMAC_SIZE 16
+#define OFFSET 7
 class LRUCache {
     //MainMemory* mainMemory;
     unsigned char *memory;
-    // store keys of cache
-    list<unsigned char *> dq;
+    // store keys of cac    he
+    std::list<unsigned char *> dq;
     // store references of key in cache
-    std::unordered_map<int, typename list<unsigned char *>::iterator> ma;
-    int pointers[15];
+    std::unordered_map<int*, typename std::list<unsigned char *>::iterator> ma;
+    unsigned char* pointers;
     int csize; // maximum capacity of cache
+    int hit_counter=0;
 
 public:
     // Declare the size
     LRUCache(int n, unsigned char *mainMemory1) {
         csize = n;
         memory = mainMemory1;
-        //mainMemory=mainMemory1;
+        pointers=new unsigned char[15*HMAC_SIZE];
     }
 
     // Refers key x with in the LRU cache
-    void refer(int x){
+    void refer(int* x,unsigned char* buf){
+        std::cout<< "Cache Call\n";
         // not present in cache
         if (ma.find(x) == ma.end()) {
-            unsigned char *buf = new unsigned char[HMAC_SIZE];
-            memset(buf, 0, HMAC_SIZE);
-            //        mainMemory->memread(x,buf,HMAC_SIZE);
-            //FIXME
-            int i, j = 0;
-            for (i = x; i < x + HMAC_SIZE; i++) {
-                buf[j++] = memory[i];
-            }
-            //FIXME
-
+            std::cout<< "Cache Miss\n";
             // cache is full
             if (dq.size() == csize) {
-                // delete least recently used element
-                unsigned char *last = dq.back();
-                // Pops the last element
-                dq.pop_back();
-                // Erase the last
-                //            ma.end().operator*();
-                auto prev = ma.end();
-                auto curr = ma.begin();
-                for (auto it = ma.begin(); curr != ma.end();) {
-                    prev = it;
-                    curr = ++it;
+                unsigned char *last = dq.back();// delete least recently used element
+                auto it = ma.begin();
+                for(; it!=ma.end(); ++it){
+                    if(!strncmp((char*)*it->second, (char *)last, HMAC_SIZE))
+                        break;
                 }
-                ma.erase(prev);
-                //            ma.erase(prev(ma.end()));
-                //            delete[] last;
-                dq.push_front(buf);
+                if(it!=ma.end())
+                ma.erase(it);
+                dq.pop_back();                 // Pops the last element
+                unsigned char* list_buf=new unsigned char[HMAC_SIZE];
+                m_strncpy(list_buf,buf,HMAC_SIZE);
+                dq.push_front(list_buf);
                 ma[x] = dq.begin();
                 return;
             }
-            // Cache is not full, but there is a MISS
-            dq.push_front(buf);
+            unsigned char* list_buf=new unsigned char[HMAC_SIZE];
+            m_strncpy(list_buf,buf,HMAC_SIZE);
+            dq.push_front(list_buf); // Cache is not full, but there is a MISS
             ma[x] = dq.begin();
             return;
         }
-
             // present in cache
         else {
+            std::cout<< "Cache Hit\n";
+            hit_counter++;
             unsigned char *buf = new unsigned char[HMAC_SIZE];
             memset(buf, 0, HMAC_SIZE);
             m_strncpy(buf, *ma[x], HMAC_SIZE);
             //FIXME: Deleting current node from memory
             unsigned char *curr = *ma[x];
             dq.erase(ma[x]);
-            //        delete[] curr;
-            //////////////////////////////////////////
             dq.push_front(buf);
             ma[x] = dq.begin();
         }
 
     }
-    unsigned char* is_in_cache(int x) {
+    unsigned char* read_from_cache(int* x) {
         if (ma.find(x) == ma.end()) {
             return NULL;
         }
-        return ma[x].operator*();
+        std::cout<< "Cache Hit from read\n";
+        unsigned char* res= ma[x].operator*();
+        refer(x,res);
+        return res;
     }
-    unsigned char* read_from_cache(int x) {
-        refer(x);
-        return ma[x].operator*();
+    unsigned char* is_in_cache(int* x){
+        if (ma.find(x) == ma.end()) {
+            return NULL;
+        }
+//        std::cout<< "Cache Hit from read\n";
+        unsigned char* res= ma[x].operator*();
+        return res;
+    }
+    void update_cache(int* x,unsigned char* new_hmac_data)
+    {
+        if (ma.find(x) == ma.end()) {
+            return;
+        }
+        unsigned char* pointer = ma[x].operator*();
+        memset(pointer, 0, HMAC_SIZE);
+        m_strncpy(pointer,new_hmac_data, HMAC_SIZE);
     }
 
-    void write_to_cache(int x, unsigned char *value) {
-        refer(x);
+    void write_to_cache(int* x, unsigned char *value) {
+        refer(x,value);
         unsigned char *pointer = ma[x].operator*();
         memset(pointer, 0, HMAC_SIZE);
-        m_strncpy(pointer, value, HMAC_SIZE);
+        m_strncpy(pointer,value, HMAC_SIZE);
     }
 
-    // Function to display contents of cache
-    void display() {
+    void display() { // Function to display contents of cache
 
         // Iterate in the deque and print
         // all the elements in it
         for (auto it = dq.begin(); it != dq.end();
              it++)
-            cout << (*it) << " ";
+            std::cout << (*it) << " ";
 
-        cout << endl;
+        std::cout << std::endl;
+    }
+    void displayMap(){
+        for (auto it = ma.begin(); it != ma.end();
+             it++)
+            std::cout << (it).operator*().first << " ";
+
+        std::cout << std::endl;
+    }
+    void print_map(){
+        for (auto const& pair: ma) {
+            std::cout << "{" << pair.first << ": " << *pair.second << "}\n";
+        }
     }
 
     //INPUT: index of node in tree
@@ -133,14 +153,37 @@ public:
         }
     }
 
-    uint64_t getMapping(int node_index) {
-        return (uint64_t)((pointers) + node_index * sizeof(int));
+    int* getMapping(int node_index) {
+        return (int*)(pointers) + node_index * (HMAC_SIZE);
+    }
+    unsigned char* getDataPointer(int node_index){
+        return (pointers + HMAC_SIZE * node_index);
     }
 
     //INPUT: address of certain node in tree
     //OUTPUT: index of that node. (Node 0, Node 1/Node 5 ....)
-    int reverseMapping(int *node_address) {
-        return ( node_address - pointers) / sizeof(int);
+    int reverseMapping(unsigned char *node_address) {
+        return ( node_address - pointers) / HMAC_SIZE;
+    }
+    void flush(){
+        int i=0;
+        int size=ma.size();
+        for(i=0;i<size;i++){
+            ma.erase(ma.begin());
+        }
+        int size2=dq.size();
+        for(i=0;i<size2;i++){
+            dq.erase(dq.begin());
+        }
+        delete[] pointers;
+        pointers=new unsigned char[15*HMAC_SIZE];
+        assert(dq.size()==0 && ma.size()==0);
+    }
+    void fillPointersArray(int block_index, unsigned char* data){
+        unsigned char* hmac_=getDataPointer(block_index);
+        for(int i=0;i<HMAC_SIZE;i++){
+            hmac_[i]=data[i];
+        }
     }
 };
 
@@ -221,13 +264,13 @@ public:
         return trusted_memory[0];
     }
     void print(){
-        std::cout<<"TRUSTED MEMORY V20.4 \n\n\n\n";
-        for(int i=0;i<trusted_memory.size();i++){
-            std::cout<<"\n"<<trusted_memory[i]<<" \n ";
-        }
+//        std::cout<<"TRUSTED MEMORY V20.4 \n\n\n\n";
+//        for(int i=0;i<trusted_memory.size();i++){
+//            std::cout<<"\n"<<trusted_memory[i]<<" \n ";
+//        }
         std::cout << "Tags\n\n";
         for(auto it = tags_list.begin(); it != tags_list.end(); ++it){
-            std::cout << *it << std::endl;
+            std::cout << it.operator*() << std::endl;
         }
     }
     int get_number_of_tags(){
@@ -237,4 +280,5 @@ public:
 
 };
 
-#endif //INTEGRITYTREE_TRUSTEDAREA_H
+
+#endif

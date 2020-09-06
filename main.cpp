@@ -11,23 +11,30 @@ int main(){
     memory->encrypt_memory(trustedArea);
 
     unsigned char root[SHA_LENGTH_BYTES];
+    cache->displayMap();
     getRoot(memory,trustedArea,cache,root);
-    trustedArea->update_root(root);
+    cache->displayMap();
 
+    trustedArea->update_root(root);
     unsigned char block_to_write[BLOCK_SIZE]="First Update of First Block";
     write_block(memory,trustedArea,cache,0,block_to_write,BLOCK_SIZE);
+    cache->displayMap();
     int state=verify_integrity(memory,trustedArea,cache);
     assert(state==1);
+    cache->displayMap();
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
 
     unsigned char block_to_write2[BLOCK_SIZE]="Second Update of First Block";
+    cache->displayMap();
     int res3=write_block(memory,trustedArea,cache,0,block_to_write2,BLOCK_SIZE);
+    cache->displayMap();
     state=verify_integrity(memory,trustedArea,cache);
+    cache->displayMap();
     assert(state==1);
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
     unsigned char curr_root[SHA_LENGTH_BYTES];
     getRoot(memory,trustedArea,cache,curr_root);
-
+//
     unsigned char buf[BLOCK_SIZE]="";
     read_block(memory,trustedArea,cache,0,buf);
     int cmp=m_strncmp(buf,block_to_write2,BLOCK_SIZE);
@@ -156,7 +163,7 @@ int main(){
     std::cout<<"--After fixing the root, Tree is good now \n";
     std::cout<<"--[*] The memory state is printed in memory.txt file. (In CMakeFiles/memory.txt)\n";
     printToFile(memory,trustedArea,cache);
-
+//    cache->display();
 
     return 0;
 }
