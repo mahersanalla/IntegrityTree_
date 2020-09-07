@@ -11,25 +11,25 @@ int main(){
     memory->encrypt_memory(trustedArea);
 
     unsigned char root[SHA_LENGTH_BYTES];
-    cache->displayMap();
+//    cache->displayMap();
     getRoot(memory,trustedArea,cache,root);
-    cache->displayMap();
+//    cache->displayMap();
 
     trustedArea->update_root(root);
     unsigned char block_to_write[BLOCK_SIZE]="First Update of First Block";
     write_block(memory,trustedArea,cache,0,block_to_write,BLOCK_SIZE);
-    cache->displayMap();
+//    cache->displayMap();
     int state=verify_integrity(memory,trustedArea,cache);
     assert(state==1);
-    cache->displayMap();
+//    cache->displayMap();
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
 
     unsigned char block_to_write2[BLOCK_SIZE]="Second Update of First Block";
-    cache->displayMap();
+//    cache->displayMap();
     int res3=write_block(memory,trustedArea,cache,0,block_to_write2,BLOCK_SIZE);
-    cache->displayMap();
+//    cache->displayMap();
     state=verify_integrity(memory,trustedArea,cache);
-    cache->displayMap();
+//    cache->displayMap();
     assert(state==1);
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
     unsigned char curr_root[SHA_LENGTH_BYTES];

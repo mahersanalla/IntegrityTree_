@@ -16,7 +16,11 @@ using namespace std;
 //MainMemory mainMemory;
 //TrustedArea trustedArea;
 
-
+int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write);
+bool is_empty2(std::ifstream& pFile)
+{
+    return pFile.peek() == std::ifstream::traits_type::eof();
+}
 void decToBinary(int n,int binaryNum[])
 {
     // array to store binary number
@@ -32,6 +36,24 @@ void decToBinary(int n,int binaryNum[])
         n = n / 2;
         i++;
     }
+}
+int power(int i){
+    if(i==0) return 1;
+    if(i==1) return 2;
+    if(i==2) return 4;
+    if(i==3) return 8;
+    return 16;
+}
+int binaryToDec(int binaryNum){
+    int sum=0;
+    int k=0;
+    while(binaryNum>0){
+        int rem=binaryNum % 10;
+        sum += rem*power(k);
+        binaryNum/=10;
+        k++;
+    }
+    return sum;
 }
 int get_level(int k){
     if(k==0){
@@ -136,8 +158,14 @@ bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUC
         //mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);   //FIXME
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
-        m_strncpy(tmp,block, HMAC_SIZE);
-        m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
+        if(other_son < block_index){
+            m_strncpy(tmp,other_son_data, HMAC_SIZE);
+            m_strncat(tmp,HMAC_SIZE,block, HMAC_SIZE);
+        }
+        else{
+            m_strncpy(tmp,block, HMAC_SIZE);
+            m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
+        }
         unsigned char hashed_data[SHA_LENGTH_BYTES];
         memset(hashed_data,0,SHA_LENGTH_BYTES);
         SHA256(tmp,sizeof(tmp), hashed_data);
@@ -177,12 +205,25 @@ bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* 
 void write_to_log(int binaryIndex[],int status, unsigned char* data){
     ofstream mylog("log.txt",std::ofstream::app);
     mylog << status <<" ";
-    for(int i=0;i<3;i++){
+    for(int i=2;i>=0;i--){
         mylog<<binaryIndex[i];
     }
 
     mylog<<" "<< data << std::endl;
     mylog.close();
+}
+void parse_log(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
+    std::ifstream input( "log.txt" );
+    int x,y;
+    input >> x >> y;
+    int block_index=binaryToDec(y);
+    unsigned char data_to_write[BLOCK_SIZE];
+    memset(data_to_write,0,BLOCK_SIZE);
+//    input >> data_to_write;
+    input.get();
+    input.getline((char*)data_to_write,BLOCK_SIZE);
+    //std::cout<<"Here I'm parsing the log " << x <<" ---" <<y <<"\n";
+    write_block(mainMemory,trustedArea,cache,block_index,data_to_write,BLOCK_SIZE);
 }
 void erase_log(){
     std::ofstream ofs;
@@ -210,7 +251,7 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
     if(!res){
         return -1; //Not verifiable
     }
-    std::cout<<"Hereeee I'm\n";
+//    std::cout<<"Hereeee I'm\n";
     unsigned char aad[256]="";
     int read_size = gcm_decrypt(tmp_buf,BLOCK_SIZE,aad,256,hmac,key,nonce,NONCE_SIZE,buf);
     return read_size;                          // How many bytes we actually decrypted and read
@@ -224,7 +265,7 @@ int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,i
 //    std::cout<<"Elapsed Time of Read Block without Integrity is : " << elapsed.count()<<std::endl;
     return read_size;
 }
-int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
+int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
     auto start = std::chrono::high_resolution_clock::now();
     if(!verify_integrity(mainMemory,trustedArea,cache)){
         return -1;                  //ERROR
@@ -266,7 +307,19 @@ int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,
 //    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
     return 0;
 }
-
+int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
+    int res=write_block_aux(mainMemory,trustedArea,cache,block_index,buf,size_to_write);
+    if(res==-1){
+        return res;
+    }
+    std::ifstream file("log.txt");
+    if(!is_empty2(file)){
+        //Crash happened!! Need to re-write the block.
+        std::cout<<"CRAAAAAAAAAAAAAAAAAAAAAAAAAASH --- PARSING SOS... \n\n";
+        parse_log(mainMemory,trustedArea,cache);
+    }
+    return 0;
+}
 void printToFile(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     std::ofstream ofs;
     ofs.open("memory.txt", std::ofstream::out | std::ofstream::trunc);

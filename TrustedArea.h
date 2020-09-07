@@ -36,10 +36,8 @@ public:
 
     // Refers key x with in the LRU cache
     void refer(int* x,unsigned char* buf){
-        std::cout<< "Cache Call\n";
         // not present in cache
         if (ma.find(x) == ma.end()) {
-            std::cout<< "Cache Miss\n";
             // cache is full
             if (dq.size() == csize) {
                 unsigned char *last = dq.back();// delete least recently used element
@@ -92,6 +90,7 @@ public:
             return NULL;
         }
 //        std::cout<< "Cache Hit from read\n";
+        hit_counter++;
         unsigned char* res= ma[x].operator*();
         return res;
     }
