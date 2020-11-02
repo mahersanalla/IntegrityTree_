@@ -14,9 +14,8 @@
 #define HMAC_MAX_ADDR 32895
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define MEMORY_SIZE 32992
+#define MEMORY_SIZE (100*1024*1024)
 #define CACHE_SIZE 8
-
 #include "TrustedArea.h"
 
 typedef enum{

@@ -257,16 +257,18 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
     return read_size;                          // How many bytes we actually decrypted and read
 }
 int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf){
-    auto start = std::chrono::high_resolution_clock::now();
+   // chrono::time_point start;
+    //start = std::chrono::high_resolution_clock::now();
     uint64_t addr=block_index*BLOCK_SIZE;
     int read_size=read_block_by_addr(mainMemory,trustedArea,cache,addr,buf);
-    auto finish = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = finish - start;
+    //auto finish = std::chrono::high_resolution_clock::now();
+    //std::chrono::duration<double> elapsed = finish - start;
 //    std::cout<<"Elapsed Time of Read Block without Integrity is : " << elapsed.count()<<std::endl;
     return read_size;
 }
 int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write){
-    auto start = std::chrono::high_resolution_clock::now();
+    //chrono::time_point start;
+    //start = std::chrono::high_resolution_clock::now();
     if(!verify_integrity(mainMemory,trustedArea,cache)){
         return -1;                  //ERROR
     }
@@ -302,8 +304,8 @@ int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     erase_log();
     delete[] new_key;
     delete[] new_nonce;
-    auto finish = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = finish - start;
+   // auto finish = std::chrono::high_resolution_clock::now();
+    //std::chrono::duration<double> elapsed = finish - start;
 //    std::cout<<"Elapsed Time of Write Block with Integrity is : " << elapsed.count()<<std::endl;
     return 0;
 }
