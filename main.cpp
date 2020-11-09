@@ -2123,4 +2123,5 @@ int main(){
     double read_median=read_times[read_times.size() / 2];
     std::cout<<"The median of read is: "<<read_median<<std::endl;
     std::cout<<"The median of write is: "<<write_median<<std::endl;
+    std::cout<<"The hit counter is : "<< cache->get_hit_counter()<<std::endl;
 }

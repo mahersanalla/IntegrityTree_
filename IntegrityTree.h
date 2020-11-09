@@ -5,6 +5,7 @@
 #define INTEGRITYTREE_INTEGRITYTREE_H
 #define FIRST_LEVEL 3
 #define SECOND_LEVEL 1
+
 #include "TrustedArea.h"
 #include "MainMemory.h"
 #include "m_stdio.h"
@@ -70,27 +71,26 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
         unsigned char* buf2=new unsigned char[HMAC_SIZE];
         memset(buf1,0,HMAC_SIZE);
         memset(buf2,0,HMAC_SIZE);
-//        mainMemory->memread(i, buf1, HMAC_SIZE);
-//        mainMemory->memread(i + HMAC_SIZE, buf2, HMAC_SIZE);
-        int* hmac1_virtual_addr=cache->getMapping(k+OFFSET);
-        unsigned char* hmac1=cache->read_from_cache(hmac1_virtual_addr);
+
+//        int* hmac1_virtual_addr=cache->getMapping(k+OFFSET);
+        unsigned char* hmac1=cache->read_from_cache(TREE_HEIGHT,k);
         if(!hmac1){
             mainMemory->memread(i, buf1, HMAC_SIZE);
-            cache->refer(hmac1_virtual_addr,buf1);
+            cache->refer(TREE_HEIGHT,k,buf1);
             hmac1=buf1;
         }
-        cache->fillPointersArray(k+OFFSET,hmac1);
+//        cache->fillPointersArray(k+OFFSET,hmac1);
 //        std::cout<<"Hmac is: "<<hmac1<<std::endl;
         k++;
-        int* hmac2_virtual_addr=cache->getMapping(k+OFFSET);
-        unsigned char* hmac2=cache->read_from_cache(hmac2_virtual_addr);
+//        int* hmac2_virtual_addr=cache->getMapping(k+OFFSET);
+        unsigned char* hmac2=cache->read_from_cache(TREE_HEIGHT,k);
         if(!hmac2){
             mainMemory->memread(i+HMAC_SIZE, buf2, HMAC_SIZE);
-            cache->refer(hmac2_virtual_addr,buf2);
+            cache->refer(TREE_HEIGHT,k,buf2);
             hmac2=buf2;
         }
 //        std::cout<<"Hmac is: "<<hmac2<<std::endl;
-        cache->fillPointersArray(k+OFFSET,hmac2);
+//        cache->fillPointersArray(k+OFFSET,hmac2);
         k++;
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
@@ -104,27 +104,28 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
 //        delete[] buf2;
     }
     int n=0; //Que eso?
-    k=0;
 //    trustedArea->print();
+    int height = TREE_HEIGHT;
     while((n=trustedArea->get_number_of_tags())>1){
-        k=get_level(k);
+        --height;
+        int index = 0;
         for(int i=0; i<= n-2; i+=2){
             unsigned char sha2[2*SHA_LENGTH_BYTES];
             memset(sha2,0,2*SHA_LENGTH_BYTES);
             m_strncpy(sha2, trustedArea->get_tag(),SHA_LENGTH_BYTES);
-            int* hmac3_virtual_addr=cache->getMapping(k);
+//            int* hmac3_virtual_addr=cache->getMapping(k);
             unsigned char* hmac3=trustedArea->get_tag();
-            cache->refer(hmac3_virtual_addr,hmac3);
-            cache->fillPointersArray(k,hmac3);
+            cache->refer(height, index, hmac3);
+//            cache->fillPointersArray(k,hmac3);
             trustedArea->delete_tag();
-            k++;
-            int* hmac4_virtual_address=cache->getMapping(k);
+            ++index;
+//            int* hmac4_virtual_address=cache->getMapping(k);
             unsigned char* hmac4=trustedArea->get_tag();
-            cache->fillPointersArray(k,hmac4);
-            cache->refer(hmac4_virtual_address,hmac4);
+//            cache->fillPointersArray(k,hmac4);
+            cache->refer(height,index,hmac4);
             m_strncat(sha2,SHA_LENGTH_BYTES,trustedArea->get_tag(),SHA_LENGTH_BYTES);
             trustedArea->delete_tag();
-            k++;
+            ++index;
             unsigned char hashed_data[SHA_LENGTH_BYTES];
             memset(hashed_data,0,SHA_LENGTH_BYTES);
             SHA256(sha2,sizeof(sha2), hashed_data);
@@ -141,24 +142,53 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     return SUCCESS;
 
 }
-//FIXME: block_index is the index+offset
-bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int block_index){
-    int* virtual_block_addr=cache->getMapping(block_index);
-    unsigned char* trusted_block = cache->is_in_cache(virtual_block_addr);
+
+
+unsigned char* getDataPointer(MainMemory* mainMemory,LRUCache* cache,CacheKey node){
+    unsigned char* buf = cache->is_in_cache(node.height,node.index);
+    if(node.height == TREE_HEIGHT || buf!=NULL){
+        if(!buf){
+            //unsigned char* data = new unsigned char[HMAC_SIZE];
+            unsigned char data[HMAC_SIZE];
+            memset(data,0,HMAC_SIZE);
+            mainMemory->memread(hmac_addr(block_addr(node.index)),data,HMAC_SIZE);
+            return data;
+        }
+        return buf;
+    }
+    unsigned char* left_son_hmac = getDataPointer(mainMemory,cache, cache->getLeftSon(node.height,node.index));
+    unsigned char* right_son_hmac = getDataPointer(mainMemory,cache,cache->getLeftSon(node.height,node.index));
+    unsigned char tmp[2 * HMAC_SIZE];
+    memset(tmp,0,2*HMAC_SIZE);
+    m_strncpy(tmp,left_son_hmac, HMAC_SIZE);
+    m_strncat(tmp,HMAC_SIZE,right_son_hmac, HMAC_SIZE);
+    unsigned char hashed_data[SHA_LENGTH_BYTES];
+    memset(hashed_data,0,SHA_LENGTH_BYTES);
+    SHA256(tmp,sizeof(tmp), hashed_data);
+    return hashed_data;
+}
+
+
+
+
+//FIXME: Nothing
+bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int height, int index){
+//    int* virtual_block_addr=cache->getMapping(block_index);
+    unsigned char* trusted_block = cache->is_in_cache(height,index);
     if(!trusted_block){
-        int parent=cache->getParentIndex(block_index);
-        int* parent_addr=cache->getMapping(parent);
-        unsigned char* parent_data=cache->getDataPointer(parent);
-        unsigned char* trusted_parent = cache->is_in_cache(parent_addr);
-        int son1=cache->getRightSon(parent);
-        int son2=cache->getLeftSon(parent);
-        int other_son= (block_index==son1) ? son2 : son1;
-        int* other_addr=cache->getMapping(other_son);
-        unsigned char* other_son_data=cache->getDataPointer(other_son);
+        CacheKey parent = cache->getParentIndex(height,index);
+//        int* parent_addr=cache->getMapping(parent);
+        unsigned char* parent_data=getDataPointer(mainMemory,cache,parent); // returns tag of parent
+        unsigned char* trusted_parent = cache->is_in_cache(parent.height, parent.index);
+        CacheKey son1=cache->getRightSon(parent.height,parent.index);
+        CacheKey son2=cache->getLeftSon(parent.height,parent.index);
+        CacheKey other_son = (index==son1.index && height == son1.height) ? son2 : son1;
+//        int* other_addr=cache->getMapping(other_son);
+        unsigned char* other_son_data=getDataPointer(mainMemory,cache,other_son);
         //mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);   //FIXME
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
-        if(other_son < block_index){
+        if(other_son.index < index){
             m_strncpy(tmp,other_son_data, HMAC_SIZE);
             m_strncat(tmp,HMAC_SIZE,block, HMAC_SIZE);
         }
@@ -177,7 +207,7 @@ bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUC
             return false;
         }
         else{
-            return verify_block_integrity(mainMemory,trustedArea,cache,hashed_data,parent);
+            return verify_block_integrity(mainMemory,trustedArea,cache,hashed_data,parent.height, parent.index);
         }
     }
     else {
@@ -247,7 +277,7 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
     nonce=mainMemory->getMemoryAddress(nonce_address);
     hmac=mainMemory->getMemoryAddress(hmac_address);
    // FIXME:
-    bool res=verify_block_integrity(mainMemory,trustedArea,cache,hmac,block_id(addr)+OFFSET);
+    bool res=verify_block_integrity(mainMemory,trustedArea,cache,hmac,TREE_HEIGHT,block_id(addr));
     if(!res){
         return -1; //Not verifiable
     }

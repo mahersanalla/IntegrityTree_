@@ -14,14 +14,51 @@
 #define CACHE_SIZE 256
 #define HMAC_SIZE 16
 #define OFFSET 7
+
+class CacheKey {
+public:
+    int height, index;
+    CacheKey(int height, int index):height(height), index(index){}
+    CacheKey (const CacheKey &other){
+        height = other.height;
+        index = other.index;
+    }
+    bool operator==(const CacheKey &other) const{
+        return height == other.height && index == other.index;
+    }
+    friend std::ostream& operator<<(std::ostream& os, const CacheKey &c_key);
+};
+
+std::ostream& operator<<(std::ostream& os, const CacheKey &c_key){
+    os << c_key.height << " " << c_key.index;
+    return os;
+}
+namespace std {
+    template<>
+    struct hash<CacheKey> {
+        std::size_t operator()(const CacheKey &k) const {
+            using std::size_t;
+            using std::hash;
+            using std::string;
+
+            // Compute individual hash values for first,
+            // second and third and combine them using XOR
+            // and bit shifting:
+
+            return ((hash<int>()(k.height)
+                     ^ (hash<int>()(k.index) << 1)) << 1);
+        }
+    };
+}
+
 class LRUCache {
     //MainMemory* mainMemory;
     unsigned char *memory;
     // store keys of cac    he
     std::list<unsigned char *> dq;
     // store references of key in cache
-    std::unordered_map<int*, typename std::list<unsigned char *>::iterator> ma;
-    unsigned char* pointers;
+    std::unordered_map<CacheKey, typename std::list<unsigned char *>::iterator> ma;
+    //unsigned char* pointers;
     int csize; // maximum capacity of cache
     int hit_counter=0;
 
@@ -30,13 +67,14 @@ public:
     LRUCache(int n, unsigned char *mainMemory1) {
         csize = n;
         memory = mainMemory1;
-        pointers=new unsigned char[15*HMAC_SIZE];
+//        pointers=new unsigned char[15*HMAC_SIZE];
     }
 
     // Refers key x with in the LRU cache
-    void refer(int* x,unsigned char* buf){
+    void refer(int height, int index, unsigned char* buf){
         // not present in cache
-        if (ma.find(x) == ma.end()) {
+        CacheKey cache_key = CacheKey(height,index);
+        if (ma.find(cache_key) == ma.end()) {
             // cache is full
             if (dq.size() == csize) {
                 unsigned char *last = dq.back();// delete least recently used element
@@ -46,18 +84,18 @@ public:
                         break;
                 }
                 if(it!=ma.end())
-                ma.erase(it);
+                    ma.erase(it);
                 dq.pop_back();                 // Pops the last element
                 unsigned char* list_buf=new unsigned char[HMAC_SIZE];
                 m_strncpy(list_buf,buf,HMAC_SIZE);
                 dq.push_front(list_buf);
-                ma[x] = dq.begin();
+                ma[cache_key] = dq.begin();
                 return;
             }
             unsigned char* list_buf=new unsigned char[HMAC_SIZE];
             m_strncpy(list_buf,buf,HMAC_SIZE);
             dq.push_front(list_buf); // Cache is not full, but there is a MISS
-            ma[x] = dq.begin();
+            ma[cache_key] = dq.begin();
             return;
         }
             // present in cache
@@ -66,46 +104,49 @@ public:
             hit_counter++;
             unsigned char *buf = new unsigned char[HMAC_SIZE];
             memset(buf, 0, HMAC_SIZE);
-            m_strncpy(buf, *ma[x], HMAC_SIZE);
+            m_strncpy(buf, *ma[cache_key], HMAC_SIZE);
             //FIXME: Deleting current node from memory
-            unsigned char *curr = *ma[x];
-            dq.erase(ma[x]);
+            unsigned char *curr = *ma[cache_key];
+            dq.erase(ma[cache_key]);
             dq.push_front(buf);
-            ma[x] = dq.begin();
+            ma[cache_key] = dq.begin();
         }
 
     }
-    unsigned char* read_from_cache(int* x) {
-        if (ma.find(x) == ma.end()) {
+    unsigned char* read_from_cache(int height, int index) {
+        CacheKey cache_key = CacheKey(height, index);
+        if (ma.find(cache_key) == ma.end()) {
             return NULL;
         }
       //  std::cout<< "Cache Hit from read\n";
-        unsigned char* res= ma[x].operator*();
-        refer(x,res);
+        unsigned char* res= ma[cache_key].operator*();
+        refer(height, index, res);
         return res;
     }
-    unsigned char* is_in_cache(int* x){
-        if (ma.find(x) == ma.end()) {
+    unsigned char* is_in_cache(int height, int index){
+        CacheKey cache_key = CacheKey(height,index);
+        if (ma.find(cache_key) == ma.end()) {
             return NULL;
         }
 //        std::cout<< "Cache Hit from read\n";
         hit_counter++;
-        unsigned char* res= ma[x].operator*();
+        unsigned char* res= ma[cache_key].operator*();
         return res;
     }
-    void update_cache(int* x,unsigned char* new_hmac_data)
-    {
-        if (ma.find(x) == ma.end()) {
+    void update_cache(int height, int index,unsigned char* new_hmac_data){
+        CacheKey cache_key = CacheKey(height,index);
+        if (ma.find(cache_key) == ma.end()) {
             return;
         }
-        unsigned char* pointer = ma[x].operator*();
+        unsigned char* pointer = ma[cache_key].operator*();
         memset(pointer, 0, HMAC_SIZE);
         m_strncpy(pointer,new_hmac_data, HMAC_SIZE);
     }
 
-    void write_to_cache(int* x, unsigned char *value) {
-        refer(x,value);
-        unsigned char *pointer = ma[x].operator*();
+    void write_to_cache(int height, int index, unsigned char *value) {
+        CacheKey cache_key = CacheKey(height,index);
+        refer(height,index,value);
+        unsigned char *pointer = ma[cache_key].operator*();
         memset(pointer, 0, HMAC_SIZE);
         m_strncpy(pointer,value, HMAC_SIZE);
     }
@@ -121,11 +162,9 @@ public:
         std::cout << std::endl;
     }
     void displayMap(){
-        for (auto it = ma.begin(); it != ma.end();
-             it++)
-            std::cout << (it).operator*().first << " ";
+        for (auto it = ma.begin(); it != ma.end();it++)
+            std::cout << (it).operator*().first << " " << *(it).operator*().second << std::endl;
 
-        std::cout << std::endl;
     }
     void print_map(){
         for (auto const& pair: ma) {
@@ -135,33 +174,40 @@ public:
 
     //INPUT: index of node in tree
     //OUTPUT: index of right son index in tree
-    int getRightSon(int i) {
-        return 2 * i + 2;
+    CacheKey getRightSon(int height, int index) {
+        return CacheKey(height+1, 2*index+1);
     }
 
-    int getLeftSon(int i) {
-        return 2 * i + 1;
+    CacheKey getLeftSon(int height, int index) {
+        return CacheKey(height+1, 2*index);
     }
 
-    int getParentIndex(int i) {
-        if (i % 2 == 0) {
-            return (i / 2 - 1);
-        } else {
-            return (i - 1) / 2;
-        }
+    CacheKey getParentIndex(int height, int index) {
+        return CacheKey(height-1, index/2);
     }
 
-    int* getMapping(int node_index) {
-        return (int*)(pointers) + node_index * (HMAC_SIZE);
-    }
-    unsigned char* getDataPointer(int node_index){
-        return (pointers + HMAC_SIZE * node_index);
-    }
+//    int* getMapping(int node_index) {
+//        return (int*)(pointers) + node_index * (HMAC_SIZE);
+//    }
+    //HON LSHO'3OL YA 3ZEZE
+//    unsigned char* getDataPointer(MainMemory* mainMemory,CacheKey node){
+//        unsigned char* buf = is_in_cache(node.height,node.index);
+//        if(node.height == TREE_HEIGHT || buf!=NULL){
+//            if(!buf){
+//                 mainMemory->memread(,);
+//            }
+//            return buf;
+//        }
+//        return nullptr;
+//    }
 
-    //INPUT: address of certain node in tree
-    //OUTPUT: index of that node. (Node 0, Node 1/Node 5 ....)
-    int reverseMapping(unsigned char *node_address) {
-        return ( node_address - pointers) / HMAC_SIZE;
+//    //INPUT: address of certain node in tree
+//    //OUTPUT: index of that node. (Node 0, Node 1/Node 5 ....)
+//    int reverseMapping(unsigned char *node_address) {
+//        return ( node_address - pointers) / HMAC_SIZE;
+//    }
+    int get_hit_counter(){
+        return hit_counter;
     }
     void flush(){
         int i=0;
@@ -173,16 +219,16 @@ public:
         for(i=0;i<size2;i++){
             dq.erase(dq.begin());
         }
-        delete[] pointers;
-        pointers=new unsigned char[15*HMAC_SIZE];
+//        delete[] pointers;
+//        pointers=new unsigned char[15*HMAC_SIZE];
         assert(dq.size()==0 && ma.size()==0);
     }
-    void fillPointersArray(int block_index, unsigned char* data){
-        unsigned char* hmac_=getDataPointer(block_index);
-        for(int i=0;i<HMAC_SIZE;i++){
-            hmac_[i]=data[i];
-        }
-    }
+//    void fillPointersArray(int block_index, unsigned char* data){
+//        unsigned char* hmac_=getDataPointer(block_index);
+//        for(int i=0;i<HMAC_SIZE;i++){
+//            hmac_[i]=data[i];
+//        }
+//    }
 };
 
 

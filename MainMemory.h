@@ -1,12 +1,13 @@
 #ifndef INTEGRITYTREE_MAINMEMORY_H
 #define INTEGRITYTREE_MAINMEMORY_H
 
+#include <cmath>
 #include "openSSLWraps.h"
 #include <unordered_map>
 #include <list>
 #include "m_stdio.h"
 #include <fstream>
-#define BLOCK_SIZE (16*1024)
+#define BLOCK_SIZE (4096)
 #define NUM_OF_BLOCKS 8
 #define HMAC_SIZE 16
 #define NONCE_SIZE 12
@@ -14,8 +15,8 @@
 #define HMAC_MAX_ADDR (BLOCK_MAX_ADDR + HMAC_SIZE*NUM_OF_BLOCKS)
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define MEMORY_SIZE (128*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
-#define CACHE_SIZE 256
+#define MEMORY_SIZE (100*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
+#define TREE_HEIGHT (log2(NUM_OF_BLOCKS))
 #include "TrustedArea.h"
 
 typedef enum{
@@ -42,6 +43,9 @@ int hmac_id(uint64_t addr){
     }
     uint64_t offset = addr - BLOCK_MAX_ADDR;
     return (int)((offset)/((uint64_t)(HMAC_SIZE)));
+}
+uint64_t block_addr(int block_index){
+    return block_index*BLOCK_SIZE;
 }
 // Input: Block address
 // Output: HMAC address of the same block...
