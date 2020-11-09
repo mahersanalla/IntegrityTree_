@@ -6,16 +6,16 @@
 #include <list>
 #include "m_stdio.h"
 #include <fstream>
-#define BLOCK_SIZE 4096
+#define BLOCK_SIZE (16*1024)
 #define NUM_OF_BLOCKS 8
 #define HMAC_SIZE 16
 #define NONCE_SIZE 12
-#define BLOCK_MAX_ADDR 32767   // 1500 is in range for last block..
-#define HMAC_MAX_ADDR 32895
+#define BLOCK_MAX_ADDR (BLOCK_SIZE*NUM_OF_BLOCKS - 1)   // 1500 is in range for last block..
+#define HMAC_MAX_ADDR (BLOCK_MAX_ADDR + HMAC_SIZE*NUM_OF_BLOCKS)
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define MEMORY_SIZE (100*1024*1024)
-#define CACHE_SIZE 8
+#define MEMORY_SIZE (128*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
+#define CACHE_SIZE 256
 #include "TrustedArea.h"
 
 typedef enum{

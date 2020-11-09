@@ -9,10 +9,9 @@
 #include <list>
 #include <unordered_map>
 #include <assert.h>
-
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define CACHE_SIZE 8
+#define CACHE_SIZE 256
 #define HMAC_SIZE 16
 #define OFFSET 7
 class LRUCache {
@@ -63,7 +62,7 @@ public:
         }
             // present in cache
         else {
-            std::cout<< "Cache Hit\n";
+          //  std::cout<< "Cache Hit\n";
             hit_counter++;
             unsigned char *buf = new unsigned char[HMAC_SIZE];
             memset(buf, 0, HMAC_SIZE);
@@ -80,7 +79,7 @@ public:
         if (ma.find(x) == ma.end()) {
             return NULL;
         }
-        std::cout<< "Cache Hit from read\n";
+      //  std::cout<< "Cache Hit from read\n";
         unsigned char* res= ma[x].operator*();
         refer(x,res);
         return res;
