@@ -1,20 +1,23 @@
 #ifndef INTEGRITYTREE_MAINMEMORY_H
 #define INTEGRITYTREE_MAINMEMORY_H
 
-#include "TrustedArea.h"
+#include <cmath>
+#include "openSSLWraps.h"
+#include <unordered_map>
+#include <list>
 #include "m_stdio.h"
 #include <fstream>
-
-#define BLOCK_SIZE 4096
-#define NUM_OF_BLOCKS 8
+#define BLOCK_SIZE (4096)
+#define NUM_OF_BLOCKS 32
 #define HMAC_SIZE 16
 #define NONCE_SIZE 12
-#define BLOCK_MAX_ADDR 32767   // 1500 is in range for last block..
-#define HMAC_MAX_ADDR 32895
+#define BLOCK_MAX_ADDR (BLOCK_SIZE*NUM_OF_BLOCKS - 1)   // 1500 is in range for last block..
+#define HMAC_MAX_ADDR (BLOCK_MAX_ADDR + HMAC_SIZE*NUM_OF_BLOCKS)
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define MEMORY_SIZE 32992
-
+#define MEMORY_SIZE (150*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
+#define TREE_HEIGHT (int)(log2(NUM_OF_BLOCKS))
+#include "TrustedArea.h"
 
 typedef enum{
     INVALID_BLOCK_ADDR,
@@ -41,6 +44,9 @@ int hmac_id(uint64_t addr){
     uint64_t offset = addr - BLOCK_MAX_ADDR;
     return (int)((offset)/((uint64_t)(HMAC_SIZE)));
 }
+uint64_t block_addr(int block_index){
+    return block_index*BLOCK_SIZE;
+}
 // Input: Block address
 // Output: HMAC address of the same block...
 uint64_t hmac_addr(uint64_t addr){
@@ -61,13 +67,14 @@ uint64_t nonce_addr(uint64_t addr){
 class MainMemory {
     unsigned char* memory;
     unsigned char* blocks_data;
+
 public:
     MainMemory():memory(new unsigned char[MEMORY_SIZE]),
     blocks_data(new unsigned char[BLOCK_SIZE*NUM_OF_BLOCKS]){
         memset(memory,0,MEMORY_SIZE);
         memset(blocks_data,0,BLOCK_SIZE*NUM_OF_BLOCKS);
     }
-    void init_memory(TrustedArea& trustedArea){
+    void init_memory(TrustedArea* trustedArea){
         memset(blocks_data,0,sizeof(memory));
         int i;
         int data = 'A';
@@ -79,13 +86,13 @@ public:
         }
         //Allocating empty root, Will be updated later
         unsigned char root[SHA_LENGTH_BYTES]="empty_root";
-        trustedArea.allocate_in_trusted_memory(root,SHA_LENGTH_BYTES,false);
+        trustedArea->allocate_in_trusted_memory(root,SHA_LENGTH_BYTES,false);
         for(i=0; i< NUM_OF_BLOCKS; i++){
             unsigned char* key=new unsigned char[KEY_SIZE];
             memset(key,0,sizeof(key));
 
             generate_random(key,KEY_SIZE);
-            trustedArea.allocate_in_trusted_memory(key,KEY_SIZE,false);
+            trustedArea->allocate_in_trusted_memory(key,KEY_SIZE,false);
             delete[] (key);
         }
         unsigned char nonce[NONCE_SIZE];
@@ -98,9 +105,10 @@ public:
             }
             memory[i] = nonce[j++];
         }
+
     }
 
-    void encrypt_memory(TrustedArea& trustedArea){
+    void encrypt_memory(TrustedArea* trustedArea){
         int j=0;
 
         int k=HMAC_MAX_ADDR + 1;
@@ -115,7 +123,7 @@ public:
             memset(ciphertext,0,BLOCK_SIZE);
             memset(tag,0,HMAC_SIZE);
             m_strncpy(plaintext,(blocks_data + i*BLOCK_SIZE),BLOCK_SIZE);
-            key=trustedArea.get_key(i+1);
+            key=trustedArea->get_key(i+1);
             m_strncpy(nonce,(memory + (k + (i*NONCE_SIZE))),NONCE_SIZE);
             int cipher_len=gcm_encrypt(plaintext,BLOCK_SIZE,aad,0,key,nonce,NONCE_SIZE,ciphertext,tag);
             m_strncpy((memory+i*BLOCK_SIZE),ciphertext,BLOCK_SIZE);
@@ -168,8 +176,9 @@ public:
     unsigned char* getMemoryAddress(uint64_t addr){
         return memory+addr;
     }
-
-
+    unsigned char* getMemoryPointer(){
+        return memory;
+    }
 
 
     ~MainMemory(){
@@ -180,6 +189,5 @@ public:
 
 
 };
-
 
 #endif //INTEGRITYTREE_MAINMEMORY_H

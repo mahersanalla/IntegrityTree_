@@ -2,6 +2,7 @@
 #define MERKLEPROJECT2_OPENSSLWRAPS_H
 #include <stdlib.h>
 #include <unistd.h>
+#include <chrono>
 #include <openssl/sha.h>
 #include <sstream>
 #include <string.h>
