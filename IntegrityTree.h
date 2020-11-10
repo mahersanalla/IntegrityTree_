@@ -100,15 +100,17 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
         memset(hashed_data,0,SHA_LENGTH_BYTES);
         SHA256(tmp,sizeof(tmp), hashed_data);
         trustedArea->allocate_in_trusted_memory(hashed_data,sizeof(hashed_data),true);
-//        delete[] buf1;
-//        delete[] buf2;
+        delete[] buf1;
+        delete[] buf2;
     }
     int n=0; //Que eso?
 //    trustedArea->print();
     int height = TREE_HEIGHT;
+    int index;
     while((n=trustedArea->get_number_of_tags())>1){
         --height;
-        int index = 0;
+        index = 0;
+      //  std::cout<<"The n is: "<<n<<std::endl;
         for(int i=0; i<= n-2; i+=2){
             unsigned char sha2[2*SHA_LENGTH_BYTES];
             memset(sha2,0,2*SHA_LENGTH_BYTES);
@@ -146,25 +148,31 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
 
 unsigned char* getDataPointer(MainMemory* mainMemory,LRUCache* cache,CacheKey node){
     unsigned char* buf = cache->is_in_cache(node.height,node.index);
-    if(node.height == TREE_HEIGHT || buf!=NULL){
-        if(!buf){
-            //unsigned char* data = new unsigned char[HMAC_SIZE];
-            unsigned char data[HMAC_SIZE];
-            memset(data,0,HMAC_SIZE);
-            mainMemory->memread(hmac_addr(block_addr(node.index)),data,HMAC_SIZE);
-            return data;
-        }
-        return buf;
+    if(buf){
+        cache->refer(node.height,node.index,buf);
+        unsigned char* block_data = new unsigned char[HMAC_SIZE];
+        m_strncpy(block_data,buf,HMAC_SIZE);
+        return block_data;
+    }
+    if(node.height == TREE_HEIGHT){
+        //unsigned char* data = new unsigned char[HMAC_SIZE];
+        unsigned char* data=new unsigned char[HMAC_SIZE];
+        memset(data,0,HMAC_SIZE);
+        mainMemory->memread(hmac_addr(block_addr(node.index)),data,HMAC_SIZE);
+        return data;
     }
     unsigned char* left_son_hmac = getDataPointer(mainMemory,cache, cache->getLeftSon(node.height,node.index));
-    unsigned char* right_son_hmac = getDataPointer(mainMemory,cache,cache->getLeftSon(node.height,node.index));
+    unsigned char* right_son_hmac = getDataPointer(mainMemory,cache,cache->getRightSon(node.height,node.index));
+    assert(left_son_hmac && right_son_hmac);
     unsigned char tmp[2 * HMAC_SIZE];
     memset(tmp,0,2*HMAC_SIZE);
     m_strncpy(tmp,left_son_hmac, HMAC_SIZE);
     m_strncat(tmp,HMAC_SIZE,right_son_hmac, HMAC_SIZE);
-    unsigned char hashed_data[SHA_LENGTH_BYTES];
+    unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
     memset(hashed_data,0,SHA_LENGTH_BYTES);
     SHA256(tmp,sizeof(tmp), hashed_data);
+    delete[] left_son_hmac;
+    delete[] right_son_hmac;
     return hashed_data;
 }
 
@@ -173,41 +181,22 @@ unsigned char* getDataPointer(MainMemory* mainMemory,LRUCache* cache,CacheKey no
 
 //FIXME: Nothing
 bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int height, int index){
-//    int* virtual_block_addr=cache->getMapping(block_index);
     unsigned char* trusted_block = cache->is_in_cache(height,index);
     if(!trusted_block){
         CacheKey parent = cache->getParentIndex(height,index);
-//        int* parent_addr=cache->getMapping(parent);
-        unsigned char* parent_data=getDataPointer(mainMemory,cache,parent); // returns tag of parent
+        //cache->refer(height,index,block);
+        unsigned char* parent_data=getDataPointer(mainMemory,cache,parent);
         unsigned char* trusted_parent = cache->is_in_cache(parent.height, parent.index);
-        CacheKey son1=cache->getRightSon(parent.height,parent.index);
-        CacheKey son2=cache->getLeftSon(parent.height,parent.index);
-        CacheKey other_son = (index==son1.index && height == son1.height) ? son2 : son1;
-//        int* other_addr=cache->getMapping(other_son);
-        unsigned char* other_son_data=getDataPointer(mainMemory,cache,other_son);
-        //mainMemory->memread(other_addr,other_son_data,HMAC_SIZE);   //FIXME
-        unsigned char tmp[2 * HMAC_SIZE];
-        memset(tmp,0,2*HMAC_SIZE);
-        if(other_son.index < index){
-            m_strncpy(tmp,other_son_data, HMAC_SIZE);
-            m_strncat(tmp,HMAC_SIZE,block, HMAC_SIZE);
-        }
-        else{
-            m_strncpy(tmp,block, HMAC_SIZE);
-            m_strncat(tmp,HMAC_SIZE,other_son_data, HMAC_SIZE);
-        }
-        unsigned char hashed_data[SHA_LENGTH_BYTES];
-        memset(hashed_data,0,SHA_LENGTH_BYTES);
-        SHA256(tmp,sizeof(tmp), hashed_data);
         if(trusted_parent){
-            bool res=m_strncmp(hashed_data,trusted_parent,HMAC_SIZE);
+            bool res=m_strncmp(parent_data,trusted_parent,HMAC_SIZE);
+            delete[] parent_data;
             if(!res){
                 return true;
             }
             return false;
         }
         else{
-            return verify_block_integrity(mainMemory,trustedArea,cache,hashed_data,parent.height, parent.index);
+            return verify_block_integrity(mainMemory,trustedArea,cache,parent_data,parent.height, parent.index);
         }
     }
     else {
@@ -288,6 +277,7 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
 }
 int read_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf){
    // chrono::time_point start;
+    //start = std::chrono::high_resolution_clock::now();
     //start = std::chrono::high_resolution_clock::now();
     uint64_t addr=block_index*BLOCK_SIZE;
     int read_size=read_block_by_addr(mainMemory,trustedArea,cache,addr,buf);

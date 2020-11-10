@@ -11,7 +11,7 @@
 #include <assert.h>
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define CACHE_SIZE 256
+#define CACHE_SIZE 1024*1024*2
 #define HMAC_SIZE 16
 #define OFFSET 7
 
@@ -58,6 +58,7 @@ class LRUCache {
     std::list<unsigned char *> dq;
     // store references of key in cache
     std::unordered_map<CacheKey, typename std::list<unsigned char *>::iterator> ma;
+    std::vector<unsigned char*> allocs;
     //unsigned char* pointers;
     int csize; // maximum capacity of cache
     int hit_counter=0;
@@ -87,15 +88,19 @@ public:
                     ma.erase(it);
                 dq.pop_back();                 // Pops the last element
                 unsigned char* list_buf=new unsigned char[HMAC_SIZE];
+                allocs.push_back(list_buf);
                 m_strncpy(list_buf,buf,HMAC_SIZE);
                 dq.push_front(list_buf);
                 ma[cache_key] = dq.begin();
+//                delete[] list_buf;
                 return;
             }
             unsigned char* list_buf=new unsigned char[HMAC_SIZE];
+            allocs.push_back(list_buf);
             m_strncpy(list_buf,buf,HMAC_SIZE);
             dq.push_front(list_buf); // Cache is not full, but there is a MISS
             ma[cache_key] = dq.begin();
+//            delete[] list_buf;
             return;
         }
             // present in cache
@@ -103,6 +108,7 @@ public:
           //  std::cout<< "Cache Hit\n";
             hit_counter++;
             unsigned char *buf = new unsigned char[HMAC_SIZE];
+            allocs.push_back(buf);
             memset(buf, 0, HMAC_SIZE);
             m_strncpy(buf, *ma[cache_key], HMAC_SIZE);
             //FIXME: Deleting current node from memory
@@ -110,6 +116,7 @@ public:
             dq.erase(ma[cache_key]);
             dq.push_front(buf);
             ma[cache_key] = dq.begin();
+//            delete[] buf;
         }
 
     }
@@ -124,6 +131,9 @@ public:
         return res;
     }
     unsigned char* is_in_cache(int height, int index){
+        if(height > TREE_HEIGHT){
+            return NULL;
+        }
         CacheKey cache_key = CacheKey(height,index);
         if (ma.find(cache_key) == ma.end()) {
             return NULL;
@@ -175,10 +185,16 @@ public:
     //INPUT: index of node in tree
     //OUTPUT: index of right son index in tree
     CacheKey getRightSon(int height, int index) {
+        if(height==TREE_HEIGHT){
+            return CacheKey(height,index);
+        }
         return CacheKey(height+1, 2*index+1);
     }
 
     CacheKey getLeftSon(int height, int index) {
+        if(height==TREE_HEIGHT){
+            return CacheKey(height,index);
+        }
         return CacheKey(height+1, 2*index);
     }
 
@@ -219,7 +235,14 @@ public:
         for(i=0;i<size2;i++){
             dq.erase(dq.begin());
         }
+        int len=allocs.size();
+        for(i=size-1;i>=0;i--){
+            delete[] allocs[i];
+            //allocs.pop_back();
+        }
+        allocs.clear();
 //        delete[] pointers;
+
 //        pointers=new unsigned char[15*HMAC_SIZE];
         assert(dq.size()==0 && ma.size()==0);
     }
@@ -229,6 +252,9 @@ public:
 //            hmac_[i]=data[i];
 //        }
 //    }
+    ~LRUCache(){
+        flush();
+    }
 };
 
 
