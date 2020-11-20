@@ -4,10 +4,97 @@
 #include "IntegrityTree.h"
 #include "assert.h"
 #include <bits/stdc++.h>
-int main2(){
+
+
+std::string random_string(int size)
+{
+    std::string str("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+
+    std::random_device rd;
+    std::mt19937 generator(rd());
+
+    std::shuffle(str.begin(), str.end(), generator);
+
+    return str.substr(0, size);    // assumes 32 < number of characters in str
+}
+void gen_random(unsigned char* str,const int len) {
+//    string rand_string = random_string(len);
+//    string rand_concat;
+//    for (int k=0; k <= ((len / 64) + 2) ;k++){
+//        rand_concat+=rand_string;
+//    }
+//    for(int i=0; i < len ; i++){
+//        str[i] = rand_concat[i];
+//    }
+      for(int i=0;i<len;i++){
+          str[i]='A';
+      }
+      str[len]='\0';
+}
+
+int main(int argc,char **argv){
+//    std::cout<<random_string2(3)<<std::endl;
+//    int block_size=atoi(argv[1]);
+//    int num_of_blocks=atoi(argv[2]);
+//    int iterations=atoi(argv[3]);
+
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
-    LRUCache* cache=new LRUCache(CACHE_SIZE,memory->getMemoryPointer());
+    LRUCache* cache=new LRUCache(CACHE_ENTRIES,memory->getMemoryPointer());
+    memory->init_memory(trustedArea);
+    memory->encrypt_memory(trustedArea);
+    unsigned char root[SHA_LENGTH_BYTES];
+    getRoot(memory,trustedArea,cache,root);
+    trustedArea->update_root(root);
+
+    unsigned char block_to_write[BLOCK_SIZE];
+    unsigned char block_read[BLOCK_SIZE];
+    auto start=std::chrono::high_resolution_clock::now();
+    auto finish=std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed;
+    std::vector<double> write_times;
+    std::vector<double> read_times;
+    int cmp=0;
+    int state=0;
+    int rand_index = 0;
+    for(int i=0 ;i < 1; i++){
+        for(int j=0; j < NUM_OF_BLOCKS; j++) {
+            rand_index = j;//rand() % num_of_blocks;
+            memset(block_to_write, '0', BLOCK_SIZE);
+            gen_random(block_to_write, BLOCK_SIZE);
+            std::cout << "--- " << block_to_write << std::endl;
+            start = std::chrono::high_resolution_clock::now();
+            write_block(memory,trustedArea,cache,rand_index,block_to_write,BLOCK_SIZE);
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            write_times.push_back(elapsed.count());
+            start = std::chrono::high_resolution_clock::now();
+            memset(block_read, '0', BLOCK_SIZE);
+            read_block(memory,trustedArea,cache,rand_index,block_read);
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            read_times.push_back(elapsed.count());
+            cmp = m_strncmp(block_to_write, block_read, BLOCK_SIZE);
+            assert(cmp==0);
+            state=verify_integrity(memory,trustedArea,cache);
+            assert(state==1);
+            memset(block_to_write, '0',BLOCK_SIZE);
+
+        }
+    }
+    std::sort(write_times.begin(),write_times.end());
+    std::sort(read_times.begin(),read_times.end());
+    double write_median=write_times[write_times.size() / 2];
+    double read_median=read_times[read_times.size() / 2];
+    std::cout<<"The median of read is: "<<read_median<<std::endl;
+    std::cout<<"The median of write is: "<<write_median<<std::endl;
+    return 0;
+}
+
+int main3(){
+    MainMemory* memory=new MainMemory();
+    TrustedArea* trustedArea=new TrustedArea();
+    LRUCache* cache=new LRUCache(CACHE_ENTRIES,memory->getMemoryPointer());
     memory->init_memory(trustedArea);
     memory->encrypt_memory(trustedArea);
     std::cout<<"THE HEIGHT MAX is : "<<TREE_HEIGHT<<std::endl;
@@ -177,12 +264,20 @@ int main2(){
 
     return 0;
 }
+
+#include<time.h>
+
+
+
+
+
 //
 //
-int main(){
+/*
+int main2(){
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
-    LRUCache* cache=new LRUCache(CACHE_SIZE,memory->getMemoryPointer());
+    LRUCache* cache=new LRUCache(CACHE_ENTRIES,memory->getMemoryPointer());
     memory->init_memory(trustedArea);
     memory->encrypt_memory(trustedArea);
     unsigned char root[SHA_LENGTH_BYTES];
@@ -2128,3 +2223,4 @@ int main(){
     cache->flush();
 
 }
+*/

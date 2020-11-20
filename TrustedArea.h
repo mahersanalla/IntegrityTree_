@@ -11,7 +11,7 @@
 #include <assert.h>
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define CACHE_SIZE 1024*1024*2
+#define CACHE_ENTRIES (6400 / HMAC_SIZE)
 #define HMAC_SIZE 16
 #define OFFSET 7
 

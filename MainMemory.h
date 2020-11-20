@@ -7,15 +7,16 @@
 #include <list>
 #include "m_stdio.h"
 #include <fstream>
-#define BLOCK_SIZE (4096)
-#define NUM_OF_BLOCKS pow(2,17)
+#define BLOCK_MEMORY_SIZE 100*1024*1024
+#define BLOCK_SIZE (64)
+#define NUM_OF_BLOCKS (BLOCK_MEMORY_SIZE / BLOCK_SIZE)  //16
 #define HMAC_SIZE 16
 #define NONCE_SIZE 12
 #define BLOCK_MAX_ADDR (BLOCK_SIZE*NUM_OF_BLOCKS - 1)   // 1500 is in range for last block..
 #define HMAC_MAX_ADDR (BLOCK_MAX_ADDR + HMAC_SIZE*NUM_OF_BLOCKS)
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define MEMORY_SIZE (1024*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
+#define MEMORY_SIZE (BLOCK_MEMORY_SIZE + 2*1024*1024 + (NONCE_SIZE+HMAC_SIZE) * NUM_OF_BLOCKS )
 #define TREE_HEIGHT (int)(log2(NUM_OF_BLOCKS))
 #include "TrustedArea.h"
 
