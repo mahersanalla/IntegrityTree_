@@ -11,9 +11,8 @@
 #include <assert.h>
 #define SHA_LENGTH_BYTES 256 //probably 256 as sha256 says..
 #define KEY_SIZE 32
-#define CACHE_ENTRIES (6400 / HMAC_SIZE)
+#define CACHE_ENTRIES ((6400) / HMAC_SIZE)
 #define HMAC_SIZE 16
-#define OFFSET 7
 
 class CacheKey {
 public:
@@ -58,7 +57,7 @@ class LRUCache {
     std::list<unsigned char *> dq;
     // store references of key in cache
     std::unordered_map<CacheKey, typename std::list<unsigned char *>::iterator> ma;
-    std::vector<unsigned char*> allocs;
+//    std::vector<unsigned char*> allocs;
     //unsigned char* pointers;
     int csize; // maximum capacity of cache
     int hit_counter=0;
@@ -88,7 +87,7 @@ public:
                     ma.erase(it);
                 dq.pop_back();                 // Pops the last element
                 unsigned char* list_buf=new unsigned char[HMAC_SIZE];
-                allocs.push_back(list_buf);
+//                allocs.push_back(list_buf);
                 m_strncpy(list_buf,buf,HMAC_SIZE);
                 dq.push_front(list_buf);
                 ma[cache_key] = dq.begin();
@@ -96,7 +95,7 @@ public:
                 return;
             }
             unsigned char* list_buf=new unsigned char[HMAC_SIZE];
-            allocs.push_back(list_buf);
+//            allocs.push_back(list_buf);
             m_strncpy(list_buf,buf,HMAC_SIZE);
             dq.push_front(list_buf); // Cache is not full, but there is a MISS
             ma[cache_key] = dq.begin();
@@ -107,14 +106,14 @@ public:
         else {
           //  std::cout<< "Cache Hit\n";
             hit_counter++;
-            unsigned char *buf = new unsigned char[HMAC_SIZE];
-            allocs.push_back(buf);
-            memset(buf, 0, HMAC_SIZE);
-            m_strncpy(buf, *ma[cache_key], HMAC_SIZE);
+            unsigned char* list_buf2 = new unsigned char[HMAC_SIZE];
+//            allocs.push_back(buf);
+            memset(list_buf2, 0, HMAC_SIZE);
+            m_strncpy(list_buf2, buf, HMAC_SIZE);
             //FIXME: Deleting current node from memory
-            unsigned char *curr = *ma[cache_key];
+
             dq.erase(ma[cache_key]);
-            dq.push_front(buf);
+            dq.push_front(list_buf2);
             ma[cache_key] = dq.begin();
 //            delete[] buf;
         }
@@ -201,7 +200,24 @@ public:
     CacheKey getParentIndex(int height, int index) {
         return CacheKey(height-1, index/2);
     }
-
+    CacheKey getBrother(int height,int index){
+        CacheKey parent=getParentIndex(height,index);
+        CacheKey rson = getRightSon(parent.height,parent.index);
+        CacheKey lson = getLeftSon(parent.height,parent.index);
+        if(height==rson.height && index==rson.index){
+            return lson;
+        }
+        return rson;
+    }
+    int getSide(int height,int index){  // 0 Left 1 Right
+        CacheKey parent=getParentIndex(height,index);
+        CacheKey rson = getRightSon(parent.height,parent.index);
+        CacheKey lson = getLeftSon(parent.height,parent.index);
+        if(height==rson.height && index==rson.index){
+            return 1;
+        }
+        return 0;
+    }
 //    int* getMapping(int node_index) {
 //        return (int*)(pointers) + node_index * (HMAC_SIZE);
 //    }
@@ -235,12 +251,12 @@ public:
         for(i=0;i<size2;i++){
             dq.erase(dq.begin());
         }
-        int len=allocs.size();
-        for(i=size-1;i>=0;i--){
-            delete[] allocs[i];
-            //allocs.pop_back();
-        }
-        allocs.clear();
+//        int len=allocs.size();
+//        for(i=size-1;i>=0;i--){
+//            delete[] allocs[i];
+//            //allocs.pop_back();
+//        }
+//        allocs.clear();
 //        delete[] pointers;
 
 //        pointers=new unsigned char[15*HMAC_SIZE];

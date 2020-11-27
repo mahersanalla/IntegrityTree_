@@ -57,30 +57,31 @@ int main(int argc,char **argv){
     int cmp=0;
     int state=0;
     int rand_index = 0;
-    for(int i=0 ;i < 1; i++){
-        for(int j=0; j < NUM_OF_BLOCKS; j++) {
-            rand_index = j;//rand() % num_of_blocks;
-            memset(block_to_write, '0', BLOCK_SIZE);
-            gen_random(block_to_write, BLOCK_SIZE);
-            std::cout << "--- " << block_to_write << std::endl;
-            start = std::chrono::high_resolution_clock::now();
-            write_block(memory,trustedArea,cache,rand_index,block_to_write,BLOCK_SIZE);
-            finish = std::chrono::high_resolution_clock::now();
-            elapsed = finish - start;
-            write_times.push_back(elapsed.count());
-            start = std::chrono::high_resolution_clock::now();
-            memset(block_read, '0', BLOCK_SIZE);
-            read_block(memory,trustedArea,cache,rand_index,block_read);
-            finish = std::chrono::high_resolution_clock::now();
-            elapsed = finish - start;
-            read_times.push_back(elapsed.count());
-            cmp = m_strncmp(block_to_write, block_read, BLOCK_SIZE);
-            assert(cmp==0);
-            state=verify_integrity(memory,trustedArea,cache);
-            assert(state==1);
-            memset(block_to_write, '0',BLOCK_SIZE);
-
+    for(int j=0; j < 100000; j++) {
+        rand_index = j % NUM_OF_BLOCKS;//rand() % num_of_blocks;
+        memset(block_to_write, '0', BLOCK_SIZE);
+        gen_random(block_to_write, BLOCK_SIZE);
+        //            std::cout << "--- " << block_to_write << "\n";
+        start = std::chrono::high_resolution_clock::now();
+        write_block(memory, trustedArea, cache, rand_index, block_to_write, BLOCK_SIZE);
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        write_times.push_back(elapsed.count());
+        start = std::chrono::high_resolution_clock::now();
+        memset(block_read, '0', BLOCK_SIZE);
+        read_block(memory, trustedArea, cache, rand_index, block_read);
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        read_times.push_back(elapsed.count());
+        cmp = m_strncmp(block_to_write, block_read, BLOCK_SIZE);
+        assert(cmp==0);
+        memset(block_to_write, '0', BLOCK_SIZE);
+        std::cout<<j<<"\n";
+        if(j==16383){
+            int x  = NUM_OF_BLOCKS /42;
+            std::cout<< x;
         }
+
     }
     std::sort(write_times.begin(),write_times.end());
     std::sort(read_times.begin(),read_times.end());
@@ -91,7 +92,7 @@ int main(int argc,char **argv){
     return 0;
 }
 
-int main3(){
+int main12(){
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
     LRUCache* cache=new LRUCache(CACHE_ENTRIES,memory->getMemoryPointer());
@@ -265,7 +266,6 @@ int main3(){
     return 0;
 }
 
-#include<time.h>
 
 
 
@@ -274,7 +274,7 @@ int main3(){
 //
 //
 /*
-int main2(){
+int main(){
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
     LRUCache* cache=new LRUCache(CACHE_ENTRIES,memory->getMemoryPointer());

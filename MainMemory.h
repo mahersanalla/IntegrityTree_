@@ -7,9 +7,9 @@
 #include <list>
 #include "m_stdio.h"
 #include <fstream>
-#define BLOCK_MEMORY_SIZE 100*1024*1024
-#define BLOCK_SIZE (64)
-#define NUM_OF_BLOCKS (BLOCK_MEMORY_SIZE / BLOCK_SIZE)  //16
+#define BLOCK_MEMORY_SIZE 128*1024*1024
+#define BLOCK_SIZE (4096)
+#define NUM_OF_BLOCKS  (BLOCK_MEMORY_SIZE / BLOCK_SIZE)  //16
 #define HMAC_SIZE 16
 #define NONCE_SIZE 12
 #define BLOCK_MAX_ADDR (BLOCK_SIZE*NUM_OF_BLOCKS - 1)   // 1500 is in range for last block..
