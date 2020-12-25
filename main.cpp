@@ -44,7 +44,7 @@ int main(int argc,char **argv){
     memory->init_memory(trustedArea);
     memory->encrypt_memory(trustedArea);
     unsigned char root[SHA_LENGTH_BYTES];
-    getRoot(memory,trustedArea,cache,root);
+    getRoot(memory,trustedArea,root);
     trustedArea->update_root(root);
 
     unsigned char block_to_write[BLOCK_SIZE];
@@ -57,7 +57,7 @@ int main(int argc,char **argv){
     int cmp=0;
     int state=0;
     int rand_index = 0;
-    for(int j=0; j < 100000; j++) {
+    for(int j=0; j < 1000; j++) {
         rand_index = j % NUM_OF_BLOCKS;//rand() % num_of_blocks;
         memset(block_to_write, '0', BLOCK_SIZE);
         gen_random(block_to_write, BLOCK_SIZE);
@@ -91,7 +91,7 @@ int main(int argc,char **argv){
     std::cout<<"The median of write is: "<<write_median<<std::endl;
     return 0;
 }
-
+/*
 int main12(){
     MainMemory* memory=new MainMemory();
     TrustedArea* trustedArea=new TrustedArea();
@@ -101,14 +101,14 @@ int main12(){
     std::cout<<"THE HEIGHT MAX is : "<<TREE_HEIGHT<<std::endl;
     unsigned char root[SHA_LENGTH_BYTES];
 //    cache->displayMap();
-    getRoot(memory,trustedArea,cache,root);
+    getRoot(memory,trustedArea,root);
 //    cache->displayMap();
 
     trustedArea->update_root(root);
     unsigned char block_to_write[BLOCK_SIZE]="First Update of First Block";
     write_block(memory,trustedArea,cache,0,block_to_write,BLOCK_SIZE);
 //    cache->displayMap();
-    int state=verify_integrity(memory,trustedArea,cache);
+    int state=verify_integrity(memory,trustedArea);
     assert(state==1);
 //    cache->displayMap();
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
@@ -117,12 +117,12 @@ int main12(){
 //    cache->displayMap();
     int res3=write_block(memory,trustedArea,cache,0,block_to_write2,BLOCK_SIZE);
 //    cache->displayMap();
-    state=verify_integrity(memory,trustedArea,cache);
+    state=verify_integrity(memory,trustedArea);
 //    cache->displayMap();
     assert(state==1);
     std::cout<<"--Tree is good, as it should :)"<<std::endl;
     unsigned char curr_root[SHA_LENGTH_BYTES];
-    getRoot(memory,trustedArea,cache,curr_root);
+    getRoot(memory,trustedArea,curr_root);
 //
     unsigned char buf[BLOCK_SIZE]="";
     read_block(memory,trustedArea,cache,0,buf);
@@ -133,19 +133,19 @@ int main12(){
     // Writing same block as before, making sure root is changed
     write_block(memory,trustedArea,cache,0,block_to_write,BLOCK_SIZE);
     unsigned char curr_root2[SHA_LENGTH_BYTES];
-    getRoot(memory,trustedArea,cache,curr_root2);
+    getRoot(memory,trustedArea,curr_root2);
     int res2=m_strncmp(curr_root,curr_root2,SHA_LENGTH_BYTES);
     assert(res2!=0);
     std::cout<<"--Root did change, as it should :)"<<std::endl;
 
     //Attacker attacks and changes block number 1 data unofficially
     memory->update_memory(BLOCK_MAX_ADDR+2,'J');
-    state=verify_integrity(memory,trustedArea,cache);
+    state=verify_integrity(memory,trustedArea);
 //    assert(state!=1);
     std::cout<<"--Integrity Verification Failed Due to attack, as it should :)"<<std::endl;
-    getRoot(memory,trustedArea,cache,root);
+    getRoot(memory,trustedArea,root);
     trustedArea->update_root(root);     // Now tree is fixed
-    state=verify_integrity(memory,trustedArea,cache);
+    state=verify_integrity(memory,trustedArea);
 //    printToFile(memory,trustedArea);
     assert(state==1);
     std::cout<<"--After updating the root manually, the state is Ok now:)"<<std::endl;
@@ -179,7 +179,7 @@ int main12(){
 
     int res=write_block(memory,trustedArea,cache,0,block_to_write3,BLOCK_SIZE);
     read_block(memory,trustedArea,cache,0,buffer1);
-    getRoot(memory,trustedArea,cache,root2);
+    getRoot(memory,trustedArea,root2);
     cmp=m_strncmp(buffer1,block_to_write3,BLOCK_SIZE);
     assert(cmp==0 && res==0);
     std::cout<<"--Write + Read Succeeded"<<std::endl;
@@ -261,7 +261,7 @@ int main12(){
     std::cout<<"--[*] The memory state is printed in memory.txt file. (In CMakeFiles/memory.txt)\n";
     printToFile(memory,trustedArea,cache);
     cache->display();
-    /*Original Main */
+    /*Original Main
 
     return 0;
 }

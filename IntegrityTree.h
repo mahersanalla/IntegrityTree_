@@ -17,7 +17,7 @@ using namespace std;
 //MainMemory mainMemory;
 //TrustedArea trustedArea;
 
-int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,int block_index,unsigned char* buf,int size_to_write);
+int write_block(MainMemory* mainMemory,TrustedArea* trustedArea,int block_index,unsigned char* buf,int size_to_write);
 bool is_empty2(std::ifstream& pFile)
 {
     return pFile.peek() == std::ifstream::traits_type::eof();
@@ -63,7 +63,7 @@ int get_level(int k){
     return SECOND_LEVEL;
 }
 
-ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* result){
+ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,unsigned char* result){
     int j=1;
     int k=0;
     for(int i = BLOCK_MAX_ADDR + 1; i<= HMAC_MAX_ADDR-2*HMAC_SIZE+1; i+= 2*HMAC_SIZE) {
@@ -71,19 +71,15 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
         unsigned char* buf2=new unsigned char[HMAC_SIZE];
         memset(buf1,0,HMAC_SIZE);
         memset(buf2,0,HMAC_SIZE);
-        unsigned char* hmac1=cache->read_from_cache(TREE_HEIGHT,k);
-        if(!hmac1){
-            mainMemory->memread(i, buf1, HMAC_SIZE);
-            cache->refer(TREE_HEIGHT,k,buf1);
-            hmac1=buf1;
-        }
+        unsigned char* hmac1;//=cache->read_from_cache(TREE_HEIGHT,k);
+        mainMemory->memread(i, buf1, HMAC_SIZE);
+        //cache->refer(TREE_HEIGHT,k,buf1);
+        hmac1=buf1;
         k++;
-        unsigned char* hmac2=cache->read_from_cache(TREE_HEIGHT,k);
-        if(!hmac2){
-            mainMemory->memread(i+HMAC_SIZE, buf2, HMAC_SIZE);
-            cache->refer(TREE_HEIGHT,k,buf2);
-            hmac2=buf2;
-        }
+        unsigned char* hmac2;//=cache->read_from_cache(TREE_HEIGHT,k);
+        mainMemory->memread(i+HMAC_SIZE, buf2, HMAC_SIZE);
+        //cache->refer(TREE_HEIGHT,k,buf2);
+        hmac2=buf2;
         k++;
         unsigned char tmp[2 * HMAC_SIZE];
         memset(tmp,0,2*HMAC_SIZE);
@@ -108,11 +104,11 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
             memset(sha2,0,2*SHA_LENGTH_BYTES);
             unsigned char* hmac3=trustedArea->get_tag();
             m_strncpy(sha2, hmac3,SHA_LENGTH_BYTES);
-            cache->refer(height, index, hmac3);
+          //  cache->refer(height, index, hmac3);
             trustedArea->delete_tag();
             ++index;
             unsigned char* hmac4=trustedArea->get_tag();
-            cache->refer(height,index,hmac4);
+            //cache->refer(height,index,hmac4);
             m_strncat(sha2,SHA_LENGTH_BYTES,hmac4,SHA_LENGTH_BYTES);
             trustedArea->delete_tag();
             ++index;
@@ -131,20 +127,14 @@ ReturnValue getRoot(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
 
 
 unsigned char* getDataPointer(MainMemory* mainMemory,LRUCache* cache,CacheKey node){
-    unsigned char* buf = cache->is_in_cache(node.height,node.index);
-    if(buf){
-        cache->refer(node.height,node.index,buf);
-        unsigned char* hmac = new unsigned char[HMAC_SIZE];
-        m_strncpy(hmac,buf,HMAC_SIZE);
-        return hmac;
-    }
+    unsigned char* buf;// = cache->is_in_cache(node.height,node.index);
     if(node.height == TREE_HEIGHT){
         unsigned char* hmac=new unsigned char[HMAC_SIZE];
         memset(hmac,0,HMAC_SIZE);
         mainMemory->memread(hmac_addr(block_addr(node.index)),hmac,HMAC_SIZE);
         return hmac;
     }
-    unsigned char* left_son_hmac = getDataPointer(mainMemory,cache, cache->getLeftSon(node.height,node.index));
+    unsigned char* left_son_hmac = getDataPointer(mainMemory,cache ,cache->getLeftSon(node.height,node.index));
     unsigned char* right_son_hmac = getDataPointer(mainMemory,cache,cache->getRightSon(node.height,node.index));
     assert(left_son_hmac && right_son_hmac);
     unsigned char tmp[2 * HMAC_SIZE];
@@ -179,7 +169,7 @@ unsigned char* getRootLite(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCa
     unsigned char* hashed_data=new unsigned char[SHA_LENGTH_BYTES];
     memset(hashed_data,0,SHA_LENGTH_BYTES);
     SHA256(tmp,sizeof(tmp), hashed_data);
-    cache->refer(parent.height,parent.index,hashed_data);
+  //  cache->refer(parent.height,parent.index,hashed_data);
     delete[] brother_hmac;
     delete[] hmac;
     return getRootLite(mainMemory,trustedArea,cache,parent,hashed_data);
@@ -195,44 +185,43 @@ unsigned char* getRootLite(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCa
  * one possible solution is to allocate the first block run so we can free it in this function
  * */
 
-bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int height, int index){
-    unsigned char* trusted_block = cache->is_in_cache(height,index);
-    if(!trusted_block){
-        CacheKey parent = cache->getParentIndex(height,index);
-        //cache->refer(height,index,block);
-        unsigned char* parent_data=getDataPointer(mainMemory,cache,parent);
-        unsigned char* trusted_parent = cache->is_in_cache(parent.height, parent.index);
-        if(trusted_parent){
-            bool res=m_strncmp(parent_data,trusted_parent,HMAC_SIZE);
-            delete[] parent_data;
-            if(!res){
-                return true;
-            }
-            return false;
-        }
-        else{
-            delete[] block;
-            return verify_block_integrity(mainMemory,trustedArea,cache,parent_data,parent.height, parent.index);
-        }
-    }
-    else {
-        // the Block is in Cache
-        int res = m_strncmp(trusted_block, block, HMAC_SIZE);
-        delete[] block;
-        if (!res) {
-            return true;
-        }
-        return false;
-    }
-}
-bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
+//bool verify_block_integrity(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache,unsigned char* block,int height, int index){
+//    unsigned char* trusted_block = cache->is_in_cache(height,index);
+//    if(!trusted_block){
+//        CacheKey parent = cache->getParentIndex(height,index);
+//        //cache->refer(height,index,block);
+//        unsigned char* parent_data=getDataPointer(mainMemory,cache,parent);
+//        unsigned char* trusted_parent = cache->is_in_cache(parent.height, parent.index);
+//        if(trusted_parent){
+//            bool res=m_strncmp(parent_data,trusted_parent,HMAC_SIZE);
+//            delete[] parent_data;
+//            if(!res){
+//                return true;
+//            }
+//            return false;
+//        }
+//        else{
+//            delete[] block;
+//            return verify_block_integrity(mainMemory,trustedArea,cache,parent_data,parent.height, parent.index);
+//        }
+//    }
+//    else {
+//        // the Block is in Cache
+//        int res = m_strncmp(trusted_block, block, HMAC_SIZE);
+//        delete[] block;
+//        if (!res) {
+//            return true;
+//        }
+//        return false;
+//    }
+//}
+bool verify_integrity(MainMemory* mainMemory,TrustedArea* trustedArea){
     unsigned char curr_root[SHA_LENGTH_BYTES];
     memset(curr_root,0,SHA_LENGTH_BYTES);
-    getRoot(mainMemory,trustedArea,cache,curr_root);
+    getRoot(mainMemory,trustedArea,curr_root);
     if(!m_strncmp(curr_root,(trustedArea->get_root()),SHA_LENGTH_BYTES)){
         return true;
     }
-    //FIXME: FLUSH THE CACHE boy!!
     return false;
 }
 // Binary index of block 001 , status Invalid/Valid , Data
@@ -257,7 +246,7 @@ void parse_log(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* cache){
     input.get();
     input.getline((char*)data_to_write,BLOCK_SIZE);
     //std::cout<<"Here I'm parsing the log " << x <<" ---" <<y <<"\n";
-    write_block(mainMemory,trustedArea,cache,block_index,data_to_write,BLOCK_SIZE);
+//    write_block(mainMemory,trustedArea,cache,block_index,data_to_write,BLOCK_SIZE);
 }
 void erase_log(){
     std::ofstream ofs;
@@ -280,7 +269,7 @@ int read_block_by_addr(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache*
     unsigned char *alloc_hmac = new unsigned char[HMAC_SIZE];
     memset(alloc_hmac,0,HMAC_SIZE);
     m_strncpy(alloc_hmac,hmac,HMAC_SIZE);
-    bool res=verify_block_integrity(mainMemory,trustedArea,cache,alloc_hmac,TREE_HEIGHT,block_id(addr));
+    bool res=verify_integrity(mainMemory,trustedArea);
     //at this point, alloc_hmac is freed by verify_block_integrity!
     if(!res){
         return -1; //Not verifiable
@@ -304,14 +293,14 @@ int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     memset(alloc_hmac,0,HMAC_SIZE);
     m_strncpy(alloc_hmac,hmac,HMAC_SIZE);
 //    auto start = std::chrono::high_resolution_clock::now();
-    bool res=verify_block_integrity(mainMemory,trustedArea,cache,alloc_hmac,TREE_HEIGHT,block_index);
+//    bool res=verify_block_integrity(mainMemory,trustedArea,cache,alloc_hmac,TREE_HEIGHT,block_index);
 //    auto end = std::chrono::high_resolution_clock::now();
 //    auto finish = end-start;
 //    std::cout << "Verify block integrity time: " << finish.count()  << std::endl;
     //at this point, alloc_hmac is freed by verify_block_integrity!
-    if(!res){
-        return -1; //Not verifiable
-    }
+//    if(!res){
+//        return -1; //Not verifiable
+//    }
     int binaryNum[32];
     decToBinary(block_index,binaryNum);
     write_to_log(binaryNum,0,buf);
@@ -333,8 +322,8 @@ int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
 //    cache->flush();
     mainMemory->memwrite(nonce_address,new_nonce,NONCE_SIZE);
     trustedArea->update_key(block_index+1,new_key);
-    cache->update_cache(TREE_HEIGHT,block_index,new_tag);
-    unsigned char* new_root;
+  //  cache->update_cache(TREE_HEIGHT,block_index,new_tag);
+    unsigned char* new_root=new unsigned char[SHA_LENGTH_BYTES];
 //    start = std::chrono::high_resolution_clock::now();
 //    getRoot(mainMemory,trustedArea,cache,new_root);
     CacheKey m_key=CacheKey(TREE_HEIGHT,block_index);
@@ -342,6 +331,7 @@ int write_block_aux(MainMemory* mainMemory,TrustedArea* trustedArea,LRUCache* ca
     memset(alloc_hmac,0,HMAC_SIZE);
     m_strncpy(alloc_hmac,new_tag,HMAC_SIZE);
     new_root=getRootLite(mainMemory,trustedArea,cache,m_key,alloc_hmac);
+    getRoot(mainMemory,trustedArea,new_root);
 //    end  = std::chrono::high_resolution_clock::now();
 //    finish = end - start;
 //    std::cout << "get root lite time: " << finish.count()  << std::endl;
